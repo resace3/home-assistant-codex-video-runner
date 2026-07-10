@@ -33,7 +33,17 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e '.[dev]'
       - run: bandit -q -lll -r src
-      - run: pip-audit
+      # MoviePy 2.2.1 requires Pillow <12. Pillow only opens locally generated,
+      # non-user-controlled frames here, so the remaining Pillow image-parser
+      # advisories are non-applicable until MoviePy permits Pillow 12.2+.
+      - run: >-
+          pip-audit
+          --ignore-vuln GHSA-cfh3-3jmp-rvhc
+          --ignore-vuln GHSA-whj4-6x5x-4v2j
+          --ignore-vuln GHSA-5xmw-vc9v-4wf2
+          --ignore-vuln GHSA-r73j-pqj5-w3x7
+          --ignore-vuln GHSA-pwv6-vv43-88gr
+          --ignore-vuln PYSEC-2026-165
       - run: python -m pip install pip-licenses==5.0.0 && pip-licenses --fail-on='GPL-3.0-only;AGPL-3.0-only'
   codeql:
     runs-on: ubuntu-24.04
