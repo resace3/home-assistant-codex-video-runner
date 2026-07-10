@@ -23,4 +23,3 @@ def test_real_synthetic_one_minute_movie(tmp_path: Path) -> None:
     assert 55 <= report["duration_seconds"] <= 65
     assert report["audio"] is True
     assert item.captions_filename.endswith(".vtt")
-

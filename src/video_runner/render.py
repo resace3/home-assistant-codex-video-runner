@@ -57,7 +57,13 @@ def _scene_image(path: Path, heading: str, body: str, config: RenderConfig, inde
     body_font = _font(max(11, config.width // 34))
     small_font = _font(max(8, config.width // 55))
     margin = config.width // 10
-    draw.rounded_rectangle((margin, config.height // 8, config.width - margin, config.height * 7 // 8), radius=max(12, config.width // 20), fill=(8, 12, 24, 190), outline=(153, 211, 255), width=2)
+    draw.rounded_rectangle(
+        (margin, config.height // 8, config.width - margin, config.height * 7 // 8),
+        radius=max(12, config.width // 20),
+        fill=(8, 12, 24, 190),
+        outline=(153, 211, 255),
+        width=2,
+    )
     y = float(config.height * 0.26)
     for line in _wrap(draw, heading, heading_font, config.width - 4 * margin):
         draw.text((2 * margin, y), line, font=heading_font, fill="white")
@@ -66,7 +72,12 @@ def _scene_image(path: Path, heading: str, body: str, config: RenderConfig, inde
     for line in _wrap(draw, body, body_font, config.width - 4 * margin):
         draw.text((2 * margin, y), line, font=body_font, fill=(220, 230, 240))
         y += body_font.size * 1.3
-    draw.text((2 * margin, int(config.height * 0.82)), "Private reflection • Not medical advice", font=small_font, fill=(175, 193, 210))
+    draw.text(
+        (2 * margin, int(config.height * 0.82)),
+        "Private reflection • Not medical advice",
+        font=small_font,
+        fill=(175, 193, 210),
+    )
     image.save(path, "PNG", optimize=True)
 
 
@@ -117,7 +128,12 @@ def render_storyboard(
     basename = identifier
     (root / "temporary").mkdir(parents=True, exist_ok=True)
     lock_context = nullcontext() if lock_already_held else render_lock(root)
-    with lock_context, tempfile.TemporaryDirectory(prefix="video-render-", dir=root / "temporary") as temporary_name:
+    with (
+        lock_context,
+        tempfile.TemporaryDirectory(
+            prefix="video-render-", dir=root / "temporary"
+        ) as temporary_name,
+    ):
         temporary = Path(temporary_name)
         frames: list[Path] = []
         for index, scene in enumerate(storyboard.scenes):
@@ -129,7 +145,9 @@ def render_storyboard(
             voice = synthesize_test_tone(audio_path, 60)
         else:
             if not settings.tts.allow_external_egress:
-                raise RuntimeError("External TTS is disabled; review the narration disclosure and opt in explicitly")
+                raise RuntimeError(
+                    "External TTS is disabled; review the narration disclosure and opt in explicitly"
+                )
             voice = synthesize_edge(storyboard.narration, audio_path, settings.tts)
         image_clips: list[ImageClip] = []
         audio: AudioFileClip | None = None
@@ -139,9 +157,14 @@ def render_storyboard(
             audio = AudioFileClip(str(audio_path))
             target_duration = float(audio.duration)
             if not 55 <= target_duration <= 65:
-                raise ValueError("narration duration must already be within 55-65 seconds; audio is never trimmed or sped up")
+                raise ValueError(
+                    "narration duration must already be within 55-65 seconds; audio is never trimmed or sped up"
+                )
             scale = target_duration / sum(scene.duration_seconds for scene in storyboard.scenes)
-            image_clips = [ImageClip(str(frame), duration=scene.duration_seconds * scale) for frame, scene in zip(frames, storyboard.scenes, strict=True)]
+            image_clips = [
+                ImageClip(str(frame), duration=scene.duration_seconds * scale)
+                for frame, scene in zip(frames, storyboard.scenes, strict=True)
+            ]
             video = concatenate_videoclips(image_clips, method="compose").with_audio(audio)
             video.write_videofile(
                 str(output),
@@ -163,9 +186,21 @@ def render_storyboard(
         normalized = temporary / f"{basename}.normalized.mp4"
         loudness = subprocess.run(
             [
-                get_ffmpeg_exe(), "-y", "-i", str(output), "-c:v", "copy", "-af",
-                "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "128k",
-                "-movflags", "+faststart", str(normalized),
+                get_ffmpeg_exe(),
+                "-y",
+                "-i",
+                str(output),
+                "-c:v",
+                "copy",
+                "-af",
+                "loudnorm=I=-16:TP=-1.5:LRA=11",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                str(normalized),
             ],
             capture_output=True,
             text=True,
@@ -203,8 +238,13 @@ def render_storyboard(
         (folder / f"{basename}.json").chmod(0o644)
         if private_audit:
             audit = private_audit.model_copy(update={"video_id": identifier})
-            audit_payload = audit.model_dump(mode="json") | {"voice_id": voice, "sha256": hashlib.sha256((folder / output.name).read_bytes()).hexdigest()}
-            atomic_json(settings.private_data_directory / "audit" / f"{basename}.json", audit_payload)
+            audit_payload = audit.model_dump(mode="json") | {
+                "voice_id": voice,
+                "sha256": hashlib.sha256((folder / output.name).read_bytes()).hexdigest(),
+            }
+            atomic_json(
+                settings.private_data_directory / "audit" / f"{basename}.json", audit_payload
+            )
         rebuild_indexes(root)
         return browser
 
@@ -239,7 +279,17 @@ def _decode_validate(path: Path, expected_width: int, expected_height: int) -> d
     if moov < 0 or mdat < 0 or moov > mdat:
         raise ValueError("MP4 is not fast-start optimized")
     silence_result = subprocess.run(
-        [get_ffmpeg_exe(), "-hide_banner", "-i", str(path), "-af", "silencedetect=noise=-50dB:d=2", "-f", "null", "-"],
+        [
+            get_ffmpeg_exe(),
+            "-hide_banner",
+            "-i",
+            str(path),
+            "-af",
+            "silencedetect=noise=-50dB:d=2",
+            "-f",
+            "null",
+            "-",
+        ],
         capture_output=True,
         text=True,
         timeout=180,

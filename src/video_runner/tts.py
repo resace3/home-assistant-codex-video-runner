@@ -18,7 +18,9 @@ async def resolve_voice(config: TTSConfig) -> str:
         raise RuntimeError("Only the edge provider is currently implemented")
     expected_id = VOICE_LABELS.get(config.requested_voice_name)
     if expected_id is None or config.requested_voice_id != expected_id:
-        raise RuntimeError("The requested display label and provider voice identifier are not an approved exact mapping")
+        raise RuntimeError(
+            "The requested display label and provider voice identifier are not an approved exact mapping"
+        )
     voices = await edge_tts.list_voices()
     exact = next(
         (
@@ -33,10 +35,14 @@ async def resolve_voice(config: TTSConfig) -> str:
     if exact:
         return str(exact["ShortName"])
     if config.allow_fallback and config.fallback_voice_name:
-        fallback = next((v for v in voices if v.get("ShortName") == config.fallback_voice_name), None)
+        fallback = next(
+            (v for v in voices if v.get("ShortName") == config.fallback_voice_name), None
+        )
         if fallback:
             return str(fallback["ShortName"])
-    raise RuntimeError(f"Requested voice {config.requested_voice_name!r} is unavailable; no substitution was made")
+    raise RuntimeError(
+        f"Requested voice {config.requested_voice_name!r} is unavailable; no substitution was made"
+    )
 
 
 def synthesize_edge(text: str, output: Path, config: TTSConfig) -> str:

@@ -9,7 +9,9 @@ import httpx
 
 
 class HomeAssistantClient:
-    def __init__(self, token: str | None = None, base_url: str = "http://supervisor/core/api") -> None:
+    def __init__(
+        self, token: str | None = None, base_url: str = "http://supervisor/core/api"
+    ) -> None:
         self._token = token or os.environ.get("SUPERVISOR_TOKEN", "")
         if not self._token:
             raise RuntimeError("SUPERVISOR_TOKEN is unavailable in this supervised runtime")
@@ -39,7 +41,9 @@ class HomeAssistantClient:
         last_response.raise_for_status()
         return last_response
 
-    def fetch_allowlisted_history(self, entity_ids: Iterable[str], *, period: str, daily_hours: int, weekly_days: int) -> dict[str, list[object]]:
+    def fetch_allowlisted_history(
+        self, entity_ids: Iterable[str], *, period: str, daily_hours: int, weekly_days: int
+    ) -> dict[str, list[object]]:
         allowed = list(entity_ids)
         if not allowed:
             return {}
@@ -50,7 +54,11 @@ class HomeAssistantClient:
         start = (datetime.now(UTC) - delta).isoformat()
         response = self._get(
             f"/history/period/{start}",
-            params={"filter_entity_id": ",".join(allowed), "minimal_response": "true", "no_attributes": "true"},
+            params={
+                "filter_entity_id": ",".join(allowed),
+                "minimal_response": "true",
+                "no_attributes": "true",
+            },
         )
         result: dict[str, list[object]] = {entity_id: [] for entity_id in allowed}
         for series in response.json():

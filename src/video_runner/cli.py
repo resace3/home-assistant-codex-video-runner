@@ -19,7 +19,9 @@ from .security import (
 )
 from .storage import rebuild_indexes, render_lock
 
-app = typer.Typer(no_args_is_help=True, help="Privacy-first Home Assistant personalized video runner")
+app = typer.Typer(
+    no_args_is_help=True, help="Privacy-first Home Assistant personalized video runner"
+)
 ConfigOption = Annotated[Path | None, typer.Option("--config", exists=True, dir_okay=False)]
 
 
@@ -78,13 +80,17 @@ def list_entities(config: ConfigOption = None) -> None:
 
 
 @app.command("preview-data")
-def preview_data(period: PeriodType = PeriodType.DAILY, config: ConfigOption = None, synthetic: bool = False) -> None:
+def preview_data(
+    period: PeriodType = PeriodType.DAILY, config: ConfigOption = None, synthetic: bool = False
+) -> None:
     settings = _settings(config)
     if synthetic:
         minimized = _collect(settings, period, True)
     else:
         minimized = _collect(settings, period, False)
-    typer.echo(json.dumps({"period": period.value, "external_disclosure_preview": minimized}, indent=2))
+    typer.echo(
+        json.dumps({"period": period.value, "external_disclosure_preview": minimized}, indent=2)
+    )
 
 
 @app.command()

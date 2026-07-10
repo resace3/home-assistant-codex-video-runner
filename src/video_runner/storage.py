@@ -52,7 +52,14 @@ def rebuild_indexes(root: Path) -> dict[str, int]:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 video = adapter.validate_python(payload)
                 base = path.parent
-                if not all((base / filename).is_file() for filename in (video.video_filename, video.thumbnail_filename, video.captions_filename)):
+                if not all(
+                    (base / filename).is_file()
+                    for filename in (
+                        video.video_filename,
+                        video.thumbnail_filename,
+                        video.captions_filename,
+                    )
+                ):
                     continue
                 item = video.model_dump(mode="json")
                 item["relative_directory"] = str(path.parent.relative_to(root)).replace("\\", "/")
@@ -67,4 +74,7 @@ def rebuild_indexes(root: Path) -> dict[str, int]:
     atomic_json(root / "indexes" / "all.json", entries)
     (root / "indexes").chmod(0o755)
     (root / "indexes" / "all.json").chmod(0o644)
-    return {"daily": sum(x["type"] == "daily" for x in entries), "weekly": sum(x["type"] == "weekly" for x in entries)}
+    return {
+        "daily": sum(x["type"] == "daily" for x in entries),
+        "weekly": sum(x["type"] == "weekly" for x in entries),
+    }

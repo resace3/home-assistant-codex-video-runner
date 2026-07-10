@@ -50,12 +50,54 @@ def offline_storyboard(period: PeriodType) -> Storyboard:
         "professional; for now, carry forward one helpful observation and one kind next step."
     )
     scenes = [
-        Scene(start_seconds=0, duration_seconds=10, scene_type="title", heading=f"Your {period_word.title()} Reflection", body="Private, calm, and descriptive.", visual=Visual(kind="gradient", data_reference="period")),
-        Scene(start_seconds=10, duration_seconds=10, scene_type="metric", heading="What Stayed Steady", body="Look for useful consistency across allowed categories.", visual=Visual(kind="chart", data_reference="aggregates")),
-        Scene(start_seconds=20, duration_seconds=10, scene_type="timeline", heading="What Shifted", body="Changes are observations, not diagnoses.", visual=Visual(kind="timeline", data_reference="trend")),
-        Scene(start_seconds=30, duration_seconds=10, scene_type="reflection", heading="Add Context", body="Routines, rest, activity, and ordinary events all matter.", visual=Visual(kind="icon_grid", data_reference="context")),
-        Scene(start_seconds=40, duration_seconds=10, scene_type="recommendation", heading="One Kind Next Step", body="Choose something small, realistic, and repeatable.", visual=Visual(kind="gradient", data_reference="recommendation")),
-        Scene(start_seconds=50, duration_seconds=10, scene_type="closing", heading="Keep Learning Gently", body="Your data stays under your control.", visual=Visual(kind="gradient", data_reference="closing")),
+        Scene(
+            start_seconds=0,
+            duration_seconds=10,
+            scene_type="title",
+            heading=f"Your {period_word.title()} Reflection",
+            body="Private, calm, and descriptive.",
+            visual=Visual(kind="gradient", data_reference="period"),
+        ),
+        Scene(
+            start_seconds=10,
+            duration_seconds=10,
+            scene_type="metric",
+            heading="What Stayed Steady",
+            body="Look for useful consistency across allowed categories.",
+            visual=Visual(kind="chart", data_reference="aggregates"),
+        ),
+        Scene(
+            start_seconds=20,
+            duration_seconds=10,
+            scene_type="timeline",
+            heading="What Shifted",
+            body="Changes are observations, not diagnoses.",
+            visual=Visual(kind="timeline", data_reference="trend"),
+        ),
+        Scene(
+            start_seconds=30,
+            duration_seconds=10,
+            scene_type="reflection",
+            heading="Add Context",
+            body="Routines, rest, activity, and ordinary events all matter.",
+            visual=Visual(kind="icon_grid", data_reference="context"),
+        ),
+        Scene(
+            start_seconds=40,
+            duration_seconds=10,
+            scene_type="recommendation",
+            heading="One Kind Next Step",
+            body="Choose something small, realistic, and repeatable.",
+            visual=Visual(kind="gradient", data_reference="recommendation"),
+        ),
+        Scene(
+            start_seconds=50,
+            duration_seconds=10,
+            scene_type="closing",
+            heading="Keep Learning Gently",
+            body="Your data stays under your control.",
+            visual=Visual(kind="gradient", data_reference="closing"),
+        ),
     ]
     return Storyboard(
         title=f"Your {period_word.title()} Reflection",
@@ -68,7 +110,9 @@ def offline_storyboard(period: PeriodType) -> Storyboard:
     )
 
 
-def generate_storyboard(period: PeriodType, summary: dict[str, object], config: GenerationConfig) -> ModelResult:
+def generate_storyboard(
+    period: PeriodType, summary: dict[str, object], config: GenerationConfig
+) -> ModelResult:
     if config.provider == "offline":
         return ModelResult(offline_storyboard(period), "offline-template", 0, 0, 0.0)
     if config.provider != "openai":
@@ -76,7 +120,14 @@ def generate_storyboard(period: PeriodType, summary: dict[str, object], config: 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         if config.offline_fallback:
-            return ModelResult(offline_storyboard(period), "offline-template", 0, 0, 0.0, "OpenAI credential unavailable")
+            return ModelResult(
+                offline_storyboard(period),
+                "offline-template",
+                0,
+                0,
+                0.0,
+                "OpenAI credential unavailable",
+            )
         raise RuntimeError("OPENAI_API_KEY is unavailable")
     candidates = [config.preferred_model or "gpt-5-nano", *config.fallback_models]
     client = OpenAI(api_key=api_key)
@@ -97,7 +148,10 @@ def generate_storyboard(period: PeriodType, summary: dict[str, object], config: 
                 response = client.responses.parse(
                     model=model,
                     input=[
-                        {"role": "system", "content": "Create a safe 60-second descriptive reflection. Use 145-160 narration words. Return only the schema."},
+                        {
+                            "role": "system",
+                            "content": "Create a safe 60-second descriptive reflection. Use 145-160 narration words. Return only the schema.",
+                        },
                         {"role": "user", "content": user_content},
                     ],
                     text_format=Storyboard,
@@ -111,10 +165,24 @@ def generate_storyboard(period: PeriodType, summary: dict[str, object], config: 
                 cost = estimate_cost(model, input_tokens, output_tokens)
                 if cost > config.maximum_estimated_cost_usd:
                     raise RuntimeError("Actual generation cost exceeds configured cap")
-                return ModelResult(response.output_parsed, model, input_tokens, output_tokens, max(cost, reserved_cost), last_error)
+                return ModelResult(
+                    response.output_parsed,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    max(cost, reserved_cost),
+                    last_error,
+                )
             except (ValueError, TypeError, APIError) as exc:
                 last_error = type(exc).__name__
                 continue
     if config.offline_fallback:
-        return ModelResult(offline_storyboard(period), "offline-template", 0, 0, 0.0, last_error or "schema validation failed")
+        return ModelResult(
+            offline_storyboard(period),
+            "offline-template",
+            0,
+            0,
+            0.0,
+            last_error or "schema validation failed",
+        )
     raise RuntimeError("No configured model produced a valid storyboard")

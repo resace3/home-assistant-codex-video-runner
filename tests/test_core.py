@@ -30,12 +30,20 @@ def test_redaction_masks_tokens_and_headers() -> None:
 
 
 def test_aggregate_history_removes_identifiers_and_individual_readings() -> None:
-    output = aggregate_history({"sensor.private_name": ["10", "12", "14"], "sensor.location": ["home"]})
+    output = aggregate_history(
+        {"sensor.private_name": ["10", "12", "14"], "sensor.location": ["home"]}
+    )
     encoded = json.dumps(output)
     assert "private_name" not in encoded
     assert "location" not in encoded
     assert output["metrics"] == {
-        "metric_1": {"median": 12.0, "minimum": 10.0, "maximum": 14.0, "change": 4.0, "observations": 3}
+        "metric_1": {
+            "median": 12.0,
+            "minimum": 10.0,
+            "maximum": 14.0,
+            "change": 4.0,
+            "observations": 3,
+        }
     }
     assert '"latest"' not in encoded
 
@@ -68,9 +76,22 @@ def test_offline_storyboard_is_one_minute_and_natural_word_count() -> None:
 
 
 def test_storyboard_rejects_overlap() -> None:
-    scene = Scene(start_seconds=0, duration_seconds=30, scene_type="title", heading="A", body="B", visual=Visual(kind="gradient", data_reference="x"))
+    scene = Scene(
+        start_seconds=0,
+        duration_seconds=30,
+        scene_type="title",
+        heading="A",
+        body="B",
+        visual=Visual(kind="gradient", data_reference="x"),
+    )
     with pytest.raises(ValidationError):
-        Storyboard(title="x", period_type="daily", summary="x", narration="word " * 150, scenes=[scene, scene, scene])
+        Storyboard(
+            title="x",
+            period_type="daily",
+            summary="x",
+            narration="word " * 150,
+            scenes=[scene, scene, scene],
+        )
 
 
 def test_cost_is_bounded_and_unknown_models_are_rejected() -> None:
@@ -125,13 +146,17 @@ def test_config_rejects_arbitrary_fields() -> None:
         Settings.model_validate({"unknown": True})
 
 
-def test_history_client_uses_period_aggregates_not_current_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_history_client_uses_period_aggregates_not_current_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Response:
         def json(self) -> list[list[dict[str, object]]]:
-            return [[
-                {"entity_id": "sensor.example_steps", "state": "10"},
-                {"state": "20"},
-            ]]
+            return [
+                [
+                    {"entity_id": "sensor.example_steps", "state": "10"},
+                    {"state": "20"},
+                ]
+            ]
 
     seen: dict[str, object] = {}
     client = object.__new__(HomeAssistantClient)
