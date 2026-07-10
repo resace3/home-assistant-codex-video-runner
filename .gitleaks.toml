@@ -1,0 +1,10 @@
+title = "Personal Video Studio runner secret policy"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "home-assistant-token"
+description = "Potential Home Assistant bearer token"
+regex = '''(?i)(SUPERVISOR_TOKEN|Authorization)\s*[:=]\s*(Bearer\s+)?[A-Za-z0-9._-]{32,}'''
+tags = ["key", "home-assistant"]

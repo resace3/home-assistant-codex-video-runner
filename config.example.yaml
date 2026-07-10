@@ -1,0 +1,33 @@
+video_directory: /share/personal_video_studio
+private_data_directory: /data/personal_video_studio
+data:
+  entity_allowlist:
+    - sensor.example_sleep_duration
+    - sensor.example_steps
+    - sensor.example_resting_heart_rate
+  history_hours_daily: 24
+  history_days_weekly: 7
+  include_raw_values_in_external_requests: false
+  anonymize_entity_names: true
+generation:
+  provider: offline
+  model_policy: cheapest_suitable
+  preferred_model: ""
+  fallback_models: [gpt-5.4-nano]
+  maximum_estimated_cost_usd: 0.05
+  structured_output: true
+  offline_fallback: true
+tts:
+  provider: edge
+  requested_voice_name: "Libby, British Warm"
+  requested_voice_id: en-GB-LibbyNeural
+  fallback_voice_name: ""
+  allow_fallback: false
+  allow_external_egress: false
+  speaking_rate: 1.0
+  output_format: mp3
+render:
+  width: 720
+  height: 1280
+  fps: 24
+  preset: medium
