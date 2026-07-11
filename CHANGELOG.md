@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 - 2026-07-10
+
+- Aligned the tag release scan with the existing PR and image-publish policy so
+  unfixed upstream operating-system findings are reported without hiding any
+  patchable High or Critical vulnerability.
+
 ## 0.2.0 - 2026-07-10
 
 - Added one-command, LLM-free daily-and-weekly synthetic generation with Libby by default.
