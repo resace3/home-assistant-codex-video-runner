@@ -11,4 +11,5 @@ python3 -m venv .venv
 install -d -m 0700 /data/personal_video_studio
 install -d -m 0755 /share/personal_video_studio/{daily,weekly,indexes}
 install -d -m 0700 /share/personal_video_studio/temporary
+"$ROOT/.venv/bin/video-runner" rebuild-index
 echo "Installed. Copy config.example.yaml to /data/personal_video_studio/config.yaml and edit privately."

@@ -7,6 +7,8 @@ data:
     - sensor.example_resting_heart_rate
   history_hours_daily: 24
   history_days_weekly: 7
+  max_observations_per_entity: 512
+  max_response_bytes: 2000000
   include_raw_values_in_external_requests: false
   anonymize_entity_names: true
 generation:

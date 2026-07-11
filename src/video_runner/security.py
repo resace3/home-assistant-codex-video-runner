@@ -12,6 +12,40 @@ TOKEN_PATTERNS = (
     re.compile(r"(?i)((?:api[_-]?key|cookie|token)\s*[:=]\s*)[^\s,;]+"),
     re.compile(r"\b[A-Za-z0-9_-]{40,}\b"),
 )
+MIN_AGGREGATE_SAMPLES = 8
+
+
+def _observation_band(count: int) -> str:
+    if count < 16:
+        return "8-15"
+    if count < 32:
+        return "16-31"
+    if count < 64:
+        return "32-63"
+    return "64+"
+
+
+def _trend_band(values: list[float]) -> str:
+    midpoint = max(1, len(values) // 2)
+    first = statistics.median(values[:midpoint])
+    second = statistics.median(values[midpoint:])
+    scale = max(abs(statistics.median(values)), 1.0)
+    relative_change = (second - first) / scale
+    if relative_change >= 0.05:
+        return "increasing"
+    if relative_change <= -0.05:
+        return "decreasing"
+    return "steady"
+
+
+def _variability_band(values: list[float]) -> str:
+    quartiles = statistics.quantiles(values, n=4, method="inclusive")
+    relative_iqr = (quartiles[2] - quartiles[0]) / max(abs(statistics.median(values)), 1.0)
+    if relative_iqr < 0.05:
+        return "low"
+    if relative_iqr < 0.20:
+        return "moderate"
+    return "high"
 
 
 def redact(value: object, sensitive_values: tuple[str, ...] = ()) -> str:
@@ -45,8 +79,8 @@ def configure_logging(sensitive_values: tuple[str, ...] = ()) -> None:
 
 
 def aggregate_history(histories: Mapping[str, list[object]]) -> dict[str, object]:
-    """Return bounded period aggregates; never return an individual reading."""
-    categories: dict[str, dict[str, float | int]] = {}
+    """Return categorical period summaries that cannot reconstruct source readings."""
+    categories: dict[str, dict[str, str]] = {}
     for index, (_, raw_values) in enumerate(histories.items(), start=1):
         values: list[float] = []
         for raw in raw_values:
@@ -54,16 +88,14 @@ def aggregate_history(histories: Mapping[str, list[object]]) -> dict[str, object
                 values.append(float(str(raw)))
             except (TypeError, ValueError):
                 continue
-        if len(values) < 2:
+        if len(values) < MIN_AGGREGATE_SAMPLES:
             continue
         categories[f"metric_{index}"] = {
-            "median": round(statistics.median(values), 2),
-            "minimum": round(min(values), 2),
-            "maximum": round(max(values), 2),
-            "change": round(values[-1] - values[0], 2),
-            "observations": len(values),
+            "trend": _trend_band(values),
+            "variability": _variability_band(values),
+            "observations": _observation_band(len(values)),
         }
-    return {"schema_version": 1, "metrics": categories}
+    return {"schema_version": 2, "metrics": categories}
 
 
 def scrub_supervisor_environment() -> None:

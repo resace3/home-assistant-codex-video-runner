@@ -8,9 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entity_allowlist: list[str] = Field(default_factory=list, max_length=50)
+    entity_allowlist: list[str] = Field(default_factory=list, max_length=20)
     history_hours_daily: int = Field(default=24, ge=1, le=168)
     history_days_weekly: int = Field(default=7, ge=1, le=31)
+    max_observations_per_entity: int = Field(default=512, ge=8, le=2048)
+    max_response_bytes: int = Field(default=2_000_000, ge=64_000, le=10_000_000)
     include_raw_values_in_external_requests: bool = False
     anonymize_entity_names: bool = True
 
@@ -34,7 +36,8 @@ class TTSConfig(BaseModel):
     fallback_voice_name: str = ""
     allow_fallback: bool = False
     allow_external_egress: bool = False
-    speaking_rate: float = Field(default=1.0, ge=0.9, le=1.1)
+    # Narration may be slowed deliberately, but is never sped up to force-fit a scene.
+    speaking_rate: float = Field(default=1.0, ge=0.9, le=1.0)
     output_format: str = "mp3"
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -9,7 +10,7 @@ import tempfile
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from imageio_ffmpeg import get_ffmpeg_exe
 from moviepy import AudioFileClip, ImageClip, VideoFileClip, concatenate_videoclips
@@ -19,6 +20,24 @@ from .config import RenderConfig, Settings
 from .schemas import BrowserVideo, PeriodType, PrivateAudit, Storyboard
 from .storage import atomic_json, rebuild_indexes, render_lock
 from .tts import synthesize_edge, synthesize_test_tone
+
+MIN_NARRATION_WPM = 145.0
+MAX_NARRATION_WPM = 160.0
+
+
+class MediaProbe(TypedDict):
+    duration_seconds: float
+    width: int
+    height: int
+    video_codec: str
+    audio_codec: str
+    pixel_format: str
+
+
+def narration_words_per_minute(text: str, duration_seconds: float) -> float:
+    if duration_seconds <= 0:
+        raise ValueError("narration duration must be positive")
+    return len(text.split()) / duration_seconds * 60
 
 
 def _font(size: int) -> Any:
@@ -125,7 +144,10 @@ def render_storyboard(
         identifier = f"weekly-{now:%G}-w{now:%V}"
         folder = root / "weekly" / f"{now:%G}"
         period_start = now - timedelta(days=7)
-    basename = identifier
+    # Assets are immutable per render. The stable metadata sidecar is switched atomically only
+    # after the complete new bundle validates, so a crash cannot expose mixed old/new assets.
+    revision = now.strftime("%Y%m%dT%H%M%S%fZ")
+    basename = f"{identifier}-{revision}"
     (root / "temporary").mkdir(parents=True, exist_ok=True)
     lock_context = nullcontext() if lock_already_held else render_lock(root)
     with (
@@ -160,6 +182,13 @@ def render_storyboard(
                 raise ValueError(
                     "narration duration must already be within 55-65 seconds; audio is never trimmed or sped up"
                 )
+            if not use_test_tone and settings.tts.provider != "mock":
+                narration_wpm = narration_words_per_minute(storyboard.narration, target_duration)
+                if not MIN_NARRATION_WPM <= narration_wpm <= MAX_NARRATION_WPM:
+                    raise ValueError(
+                        "Libby narration must be 145-160 WPM at natural 1.0x; "
+                        "shorten the script or extend scenes instead of changing playback speed"
+                    )
             scale = target_duration / sum(scene.duration_seconds for scene in storyboard.scenes)
             image_clips = [
                 ImageClip(str(frame), duration=scene.duration_seconds * scale)
@@ -234,8 +263,9 @@ def render_storyboard(
         for source in (output, thumbnail, captions):
             shutil.move(str(source), folder / source.name)
             (folder / source.name).chmod(0o644)
-        atomic_json(folder / f"{basename}.json", browser.model_dump(mode="json"))
-        (folder / f"{basename}.json").chmod(0o644)
+        metadata_path = folder / f"{identifier}.json"
+        atomic_json(metadata_path, browser.model_dump(mode="json"))
+        metadata_path.chmod(0o644)
         if private_audit:
             audit = private_audit.model_copy(update={"video_id": identifier})
             audit_payload = audit.model_dump(mode="json") | {
@@ -249,32 +279,101 @@ def render_storyboard(
         return browser
 
 
-def _decode_validate(path: Path, expected_width: int, expected_height: int) -> dict[str, object]:
-    if not path.is_file() or path.stat().st_size < 1024:
-        raise ValueError("video output is missing or too small")
-    with VideoFileClip(str(path)) as clip:
-        duration = float(clip.duration)
-        if not 55 <= duration <= 65:
-            raise ValueError("video duration is outside 55-65 seconds")
-        if tuple(clip.size) != (expected_width, expected_height):
-            raise ValueError("video resolution does not match configuration")
-        if clip.audio is None:
-            raise ValueError("video has no audio stream")
-    command = [get_ffmpeg_exe(), "-v", "error", "-i", str(path), "-f", "null", "-"]
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
-    if completed.returncode:
-        raise ValueError("ffmpeg decode validation failed")
-    probe = subprocess.run(
-        [get_ffmpeg_exe(), "-hide_banner", "-i", str(path)],
+def _ffprobe_executable() -> str:
+    executable = shutil.which("ffprobe")
+    if executable:
+        return executable
+    configured_ffmpeg = Path(get_ffmpeg_exe())
+    names = ("ffprobe.exe", "ffprobe") if os.name == "nt" else ("ffprobe",)
+    for name in names:
+        candidate = configured_ffmpeg.with_name(name)
+        if candidate.is_file():
+            return str(candidate)
+    raise ValueError(
+        "ffprobe is required for media validation; install the ffmpeg package and rerun doctor"
+    )
+
+
+def _probe_media(path: Path) -> MediaProbe:
+    completed = subprocess.run(
+        [
+            _ffprobe_executable(),
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            str(path),
+        ],
         capture_output=True,
         text=True,
         timeout=30,
         check=False,
-    ).stderr
-    lowered = probe.lower()
-    if "video: h264" not in lowered or "audio: aac" not in lowered or "yuv420p" not in lowered:
+    )
+    if completed.returncode:
+        raise ValueError("ffprobe could not inspect the rendered video")
+    try:
+        payload = json.loads(completed.stdout)
+        streams = payload["streams"]
+        video_stream = next(stream for stream in streams if stream.get("codec_type") == "video")
+        audio_stream = next(stream for stream in streams if stream.get("codec_type") == "audio")
+        duration = float(payload.get("format", {}).get("duration") or video_stream["duration"])
+        return {
+            "duration_seconds": duration,
+            "width": int(video_stream["width"]),
+            "height": int(video_stream["height"]),
+            "video_codec": str(video_stream["codec_name"]),
+            "audio_codec": str(audio_stream["codec_name"]),
+            "pixel_format": str(video_stream["pix_fmt"]),
+        }
+    except (
+        AttributeError,
+        KeyError,
+        StopIteration,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise ValueError("ffprobe returned incomplete or invalid stream metadata") from exc
+
+
+def _decode_validate(
+    path: Path, expected_width: int | None = None, expected_height: int | None = None
+) -> dict[str, object]:
+    if not path.is_file() or path.stat().st_size < 1024:
+        raise ValueError("video output is missing or too small")
+    probe = _probe_media(path)
+    with VideoFileClip(str(path)) as clip:
+        moviepy_duration = float(clip.duration)
+        if not 55 <= moviepy_duration <= 65:
+            raise ValueError("video duration is outside 55-65 seconds")
+        if clip.audio is None:
+            raise ValueError("video has no audio stream")
+        moviepy_size = tuple(int(value) for value in clip.size)
+    duration = float(probe["duration_seconds"])
+    width, height = int(probe["width"]), int(probe["height"])
+    if not 55 <= duration <= 65:
+        raise ValueError("ffprobe duration is outside 55-65 seconds")
+    if abs(moviepy_duration - duration) > 0.25:
+        raise ValueError("MoviePy and ffprobe disagree about video duration")
+    if moviepy_size != (width, height):
+        raise ValueError("MoviePy and ffprobe disagree about video resolution")
+    if expected_width is not None and expected_height is not None:
+        if (width, height) != (expected_width, expected_height):
+            raise ValueError("video resolution does not match configuration")
+    if (
+        probe["video_codec"] != "h264"
+        or probe["audio_codec"] != "aac"
+        or probe["pixel_format"] != "yuv420p"
+    ):
         raise ValueError("output must contain H.264 video, AAC audio, and yuv420p pixels")
-    atoms = path.read_bytes()[:2_000_000]
+    command = [get_ffmpeg_exe(), "-v", "error", "-i", str(path), "-f", "null", "-"]
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
+    if completed.returncode:
+        raise ValueError("ffmpeg decode validation failed")
+    with path.open("rb") as stream:
+        atoms = stream.read(2_000_000)
     moov, mdat = atoms.find(b"moov"), atoms.find(b"mdat")
     if moov < 0 or mdat < 0 or moov > mdat:
         raise ValueError("MP4 is not fast-start optimized")
@@ -302,19 +401,18 @@ def _decode_validate(path: Path, expected_width: int, expected_height: int) -> d
         raise ValueError("audio contains a long pause")
     return {
         "duration_seconds": duration,
-        "width": expected_width,
-        "height": expected_height,
+        "width": width,
+        "height": height,
         "video_codec": "h264",
         "audio_codec": "aac",
         "pixel_format": "yuv420p",
         "faststart": True,
         "audio": True,
+        "validation_backend": "moviepy+ffprobe+ffmpeg-decode",
     }
 
 
 def validate_output(path: Path) -> dict[str, object]:
-    with VideoFileClip(str(path)) as clip:
-        width, height = clip.size
-    result = _decode_validate(path, int(width), int(height))
+    result = _decode_validate(path)
     result["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     return result

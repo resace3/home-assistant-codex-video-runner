@@ -48,8 +48,11 @@ async def resolve_voice(config: TTSConfig) -> str:
 def synthesize_edge(text: str, output: Path, config: TTSConfig) -> str:
     async def run() -> str:
         voice = await resolve_voice(config)
+        rate_percent = round((config.speaking_rate - 1.0) * 100)
+        if rate_percent > 0:
+            raise RuntimeError("Narration is never sped up to force-fit a scene")
         # Edge's +0% rate is the provider's natural 1.0x speaking rate.
-        communicate = edge_tts.Communicate(text, voice=voice, rate="+0%")
+        communicate = edge_tts.Communicate(text, voice=voice, rate=f"{rate_percent:+d}%")
         await communicate.save(str(output))
         return voice
 

@@ -1,18 +1,7 @@
 # Scheduling
 
-Run daily generation after the data window closes and weekly generation once per week. Start in synthetic mode to avoid provider costs. Advanced SSH & Web Terminal must remain installed, protected, and running; this project never restarts or uninstalls it.
+The supported scheduler runs inside the **Personal Video Runner** Home Assistant app. Configure `daily_time`, `weekly_day`, and `weekly_time` in the app options. Monday is day `0`; Sunday is day `6`.
 
-Example Home Assistant automation using an intentionally narrow command exposed by your terminal environment:
+This removes the unsupported cross-app `shell_command` bridge and survives host or app restarts. Do not place `SUPERVISOR_TOKEN` or provider keys in automation YAML. Supervisor injects the token into the runner app at runtime.
 
-```yaml
-automation:
-  - alias: Personal video daily
-    triggers:
-      - trigger: time
-        at: "06:15:00"
-    actions:
-      - action: shell_command.personal_video_daily
-```
-
-Do not place `SUPERVISOR_TOKEN` or provider keys in automation YAML. Prefer an in-environment scheduler if cross-add-on shell commands are unavailable.
-
+Advanced SSH & Web Terminal is not involved in scheduling and is never stopped, restarted, uninstalled, or reconfigured by this project.

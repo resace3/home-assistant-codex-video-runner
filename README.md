@@ -22,21 +22,13 @@ The Supervisor token exists only during the collector phase in an in-memory HTTP
 
 The browser-safe manifest contains titles, dates, filenames, duration, and a short safe description. Model, cost, voice, checksum, fallback reason, and category audit records stay under private `/data`. Raw states and prompts are never written into the shared catalog.
 
-## Quick start in Advanced SSH & Web Terminal
+## Home Assistant installation
 
-Keep Advanced SSH protected. This project never uninstalls or restarts it and never asks you to weaken protected mode.
+Add this repository to Home Assistant's app store, install **Personal Video Runner**, review its options, and explicitly enable `allow_external_tts` before starting it. The headless app owns Python, MoviePy, FFmpeg, FFprobe, Libby TTS, and its scheduler; it does not depend on a shell app or a host package install.
 
-```bash
-git clone https://github.com/resace3/home-assistant-codex-video-runner.git
-cd home-assistant-codex-video-runner
-scripts/install.sh
-cp config.example.yaml /data/personal_video_studio/config.yaml
-chmod 600 /data/personal_video_studio/config.yaml
-.venv/bin/video-runner doctor --config /data/personal_video_studio/config.yaml --test-tts
-.venv/bin/video-runner generate --period daily --synthetic --mock-tts --config /data/personal_video_studio/config.yaml
-```
+On the first successful start, `run_demo_on_start` publishes one daily and one weekly synthetic video. Recurring jobs run inside the supervised app and survive restarts. Keep Advanced SSH protected and running if you use it for unrelated work: this project never stops, restarts, uninstalls, or weakens it.
 
-Use only synthetic mode during repeated testing. A real run reads the runtime `SUPERVISOR_TOKEN` automatically; never paste it into configuration.
+A real scheduled run receives `SUPERVISOR_TOKEN` from Supervisor at runtime. Never paste that token into configuration.
 
 ## Commands
 
@@ -45,6 +37,7 @@ video-runner doctor [--test-tts]
 video-runner list-entities
 video-runner preview-data --period daily [--synthetic]
 video-runner generate --period daily|weekly [--synthetic] [--mock-tts]
+video-runner generate-demo [--mock-tts]
 video-runner validate-output PATH
 video-runner rebuild-index
 video-runner cleanup [--no-dry-run]
@@ -55,11 +48,13 @@ video-runner print-schedule-example
 
 ## Voice and timing
 
-The requested product label `Libby, British Warm` is resolved to the provider voice identifier `en-GB-LibbyNeural`. Resolution is checked against the provider's live voice list; production never silently substitutes another voice. Speech uses the natural provider rate (`+0%`, 1.0x). Scripts are constrained to 145–160 words for approximately one minute. If narration is long, shorten the script or extend the scene within 55–65 seconds; never speed up Libby.
+The requested product label `Libby, British Warm` is resolved to the provider voice identifier `en-GB-LibbyNeural`. Resolution is checked against the provider's live voice list; production never silently substitutes another voice. Speech uses the natural provider rate (`+0%`, 1.0x). Scripts are constrained to 145–160 words for approximately one minute, using `seconds = word count / 150 * 60`; the rendered audio is also checked for an actual 145–160 WPM pace. If narration is long, shorten the script or extend the scene within 55–65 seconds; never speed up Libby.
 
-Edge TTS is external egress and is disabled by default. Before setting `tts.allow_external_egress: true` in private runtime configuration, use the disclosure preview and understand that the full narration is sent to the provider. Synthetic CI and demo runs use a local test tone. The Edge client is not an authenticated enterprise speech SLA; users needing contractual processing terms should implement another provider adapter.
+Edge TTS is external egress and is disabled by default. Before setting `tts.allow_external_egress: true` in private runtime configuration, use the disclosure preview and understand that the full narration is sent to the provider. CI uses a local test tone; the installed demo uses the exact Libby voice only after explicit consent. The Edge client is not an authenticated enterprise speech SLA; users needing contractual processing terms should implement another provider adapter.
 
 CI uses a deterministic test tone and calls no paid TTS service.
+
+`generate-demo` always uses the offline storyboard and synthetic data, so it never calls an LLM or incurs model cost. By default it renders both a daily and a weekly video with Libby. That requires the explicit `tts.allow_external_egress: true` disclosure setting because the generic narration is sent to Edge TTS. The `--mock-tts` test-tone option exists only for CI and local pipeline diagnostics, not final user-facing videos.
 
 ## Model and cost policy
 
@@ -83,7 +78,9 @@ Codex is the engineering tool used to build and maintain this project. The optio
 └── logs/
 ```
 
-The runner renders in a same-filesystem temporary directory, validates video/audio/duration/resolution and a complete FFmpeg decode, moves completed assets, writes the browser-safe sidecar, then atomically replaces indexes last. A lock prevents duplicate renders. The viewer ignores anything not present in a valid index.
+The runner renders in a same-filesystem temporary directory, validates video/audio/duration/resolution independently with MoviePy and FFprobe, and performs a complete FFmpeg decode and long-pause scan. Each render gets immutable asset filenames; only after the whole bundle validates does the runner atomically replace the stable `{video-id}.json` sidecar and indexes. A crash can leave an unreferenced orphan, but it cannot expose a mixed old/new bundle. A lock prevents duplicate renders and index rebuild races.
+
+Installation creates an empty valid `indexes/all.json`; seeing zero videos after viewer installation means no completed runner bundle has been published yet. Run `generate-demo` to publish one daily and one weekly bundle, then refresh Personal Video Studio.
 
 `/share` is shared across add-ons and is not a security boundary: any add-on granted share access may read it. Install only trusted add-ons.
 
@@ -91,11 +88,11 @@ The runner renders in a same-filesystem temporary directory, validates video/aud
 
 Copy `config.example.yaml` to private `/data`; it is ignored by Git. Real entity IDs, values, provider keys, generated videos, narration, screenshots, Nabu Casa URLs, tokens, cookies, and logs must never enter this public repository.
 
-The collector accepts only allowlisted sensor-like domains, fetches only those states, removes entity identifiers before external disclosure, bounds the schema, and rejects unknown fields. Free text, raw history, coordinates, attributes, database exports, and exact timestamps are not sent externally.
+The collector accepts at most 20 allowlisted sensor-like entities and fetches them one at a time with response-size and observation caps. External disclosure uses anonymous categorical trend, variability, and count bands only after at least eight observations. Exact values, extrema, entity identifiers, free text, raw history, coordinates, attributes, database exports, and exact timestamps are not sent externally.
 
-## Docker
+## Container and scheduler
 
-The Docker image is reproducible for offline/synthetic tokenless rendering. Building or controlling Docker from Advanced SSH may be unavailable under protected mode. Never disable protection or mount the Docker socket for this project. The supported private collector path is the supervised shell runtime; Docker receives no Supervisor token.
+The same pinned multi-architecture image powers the headless Home Assistant app. A root entrypoint creates only the required `/share/personal_video_studio` and private `/data/personal_video_studio` directories, then drops permanently to UID 10001 before running the scheduler. The image never receives the Docker socket. Each generation runs in a child process so the child can scrub `SUPERVISOR_TOKEN` before importing or calling any provider while the long-lived scheduler retains its supervised runtime credential for the next local collection.
 
 ## Tests
 

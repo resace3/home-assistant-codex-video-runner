@@ -31,18 +31,35 @@ class HomeAssistantClient:
                 response = self._client.get(path, params=params)
                 last_response = response
                 if response.status_code not in {429, 500, 502, 503, 504}:
-                    response.raise_for_status()
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        raise RuntimeError(
+                            f"Home Assistant history request failed with HTTP {exc.response.status_code}"
+                        ) from None
                     return response
             except (httpx.TimeoutException, httpx.NetworkError):
                 if attempt == 3:
                     raise
             time.sleep(min(4.0, 0.5 * (2**attempt)))
         assert last_response is not None
-        last_response.raise_for_status()
+        try:
+            last_response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"Home Assistant history request failed with HTTP {exc.response.status_code}"
+            ) from None
         return last_response
 
     def fetch_allowlisted_history(
-        self, entity_ids: Iterable[str], *, period: str, daily_hours: int, weekly_days: int
+        self,
+        entity_ids: Iterable[str],
+        *,
+        period: str,
+        daily_hours: int,
+        weekly_days: int,
+        max_observations_per_entity: int = 512,
+        max_response_bytes: int = 2_000_000,
     ) -> dict[str, list[object]]:
         allowed = list(entity_ids)
         if not allowed:
@@ -52,25 +69,29 @@ class HomeAssistantClient:
                 raise ValueError("entity allowlist contains a disallowed domain")
         delta = timedelta(hours=daily_hours) if period == "daily" else timedelta(days=weekly_days)
         start = (datetime.now(UTC) - delta).isoformat()
-        response = self._get(
-            f"/history/period/{start}",
-            params={
-                "filter_entity_id": ",".join(allowed),
-                "minimal_response": "true",
-                "no_attributes": "true",
-            },
-        )
         result: dict[str, list[object]] = {entity_id: [] for entity_id in allowed}
-        for series in response.json():
-            if not isinstance(series, list) or not series or not isinstance(series[0], dict):
-                continue
-            series_entity = series[0].get("entity_id")
-            if not isinstance(series_entity, str) or series_entity not in result:
-                continue
-            for sample in series:
-                if not isinstance(sample, dict):
+        for entity_id in allowed:
+            response = self._get(
+                f"/history/period/{start}",
+                params={
+                    "filter_entity_id": entity_id,
+                    "minimal_response": "true",
+                    "no_attributes": "true",
+                },
+            )
+            if len(response.content) > max_response_bytes:
+                raise RuntimeError("Home Assistant history response exceeded the configured cap")
+            for series in response.json():
+                if not isinstance(series, list) or not series or not isinstance(series[0], dict):
                     continue
-                result[series_entity].append(sample.get("state"))
+                series_entity = series[0].get("entity_id")
+                if series_entity != entity_id:
+                    continue
+                states = [sample.get("state") for sample in series if isinstance(sample, dict)]
+                if len(states) > max_observations_per_entity:
+                    stride = max(1, len(states) // (max_observations_per_entity - 1))
+                    states = states[::stride][: (max_observations_per_entity - 1)] + [states[-1]]
+                result[entity_id] = states
         return result
 
     def __enter__(self) -> HomeAssistantClient:
