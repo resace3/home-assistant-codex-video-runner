@@ -7,8 +7,6 @@ arch:
   - aarch64
   - amd64
 image: ghcr.io/resace3/home-assistant-codex-video-runner
-startup: application
-boot: auto
 init: false
 homeassistant_api: true
 map:
