@@ -5,6 +5,14 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+TARGET_NARRATION_WPM = 150
+MIN_NARRATION_WPM = 145
+MAX_NARRATION_WPM = 160
+
+
+def estimated_narration_seconds(text: str) -> float:
+    return len(text.split()) / TARGET_NARRATION_WPM * 60
+
 
 class PeriodType(StrEnum):
     DAILY = "daily"
@@ -47,8 +55,13 @@ class Storyboard(BaseModel):
         if not 55 <= previous_end <= 65:
             raise ValueError("storyboard duration must be between 55 and 65 seconds")
         words = len(self.narration.split())
-        if not 145 <= words <= 160:
-            raise ValueError("narration must contain 145-160 words for natural one-minute speech")
+        if not MIN_NARRATION_WPM <= words <= MAX_NARRATION_WPM:
+            raise ValueError(
+                "narration must contain 145-160 words for natural one-minute speech at 150 WPM"
+            )
+        estimated_seconds = estimated_narration_seconds(self.narration)
+        if not 58 <= estimated_seconds <= 64:
+            raise ValueError("narration timing estimate is outside the one-minute target")
         return self
 
 

@@ -39,26 +39,39 @@ def _settings(config: Path | None) -> Settings:
 
 def _collect(settings: Settings, period: PeriodType, synthetic: bool) -> dict[str, object]:
     if synthetic:
-        return aggregate_history({"synthetic.one": [7.1, 7.5, 7.9], "synthetic.two": [39, 42, 44]})
+        return aggregate_history(
+            {
+                "synthetic.one": [7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.8, 7.9],
+                "synthetic.two": [39, 40, 40, 41, 42, 43, 43, 44],
+            }
+        )
     with HomeAssistantClient() as client:
         histories = client.fetch_allowlisted_history(
             settings.data.entity_allowlist,
             period=period.value,
             daily_hours=settings.data.history_hours_daily,
             weekly_days=settings.data.history_days_weekly,
+            max_observations_per_entity=settings.data.max_observations_per_entity,
+            max_response_bytes=settings.data.max_response_bytes,
         )
     return aggregate_history(histories)
 
 
 @app.command()
-def doctor(config: ConfigOption = None, test_tts: bool = False) -> None:
+def doctor(
+    config: ConfigOption = None,
+    test_tts: bool = False,
+    require_supervisor_token: bool = True,
+) -> None:
     """Check runtime, storage, Supervisor, ffmpeg, Codex, and the exact requested voice."""
     settings = _settings(config)
-    checks = {
+    checks: dict[str, object] = {
         "supervisor_token_present": bool(os.environ.get("SUPERVISOR_TOKEN")),
-        "codex_cli": shutil.which("codex") is not None,
+        "codex_cli_optional": shutil.which("codex") is not None,
         "ffmpeg": shutil.which("ffmpeg") is not None,
+        "ffprobe": shutil.which("ffprobe") is not None,
         "video_directory_parent_exists": settings.video_directory.parent.exists(),
+        "video_directory_parent_writable": os.access(settings.video_directory.parent, os.W_OK),
         "requested_voice_name": settings.tts.requested_voice_name,
         "requested_voice_id": settings.tts.requested_voice_id,
     }
@@ -68,8 +81,28 @@ def doctor(config: ConfigOption = None, test_tts: bool = False) -> None:
         scrub_supervisor_environment()
         from .tts import resolve_voice
 
+        if not settings.tts.allow_external_egress:
+            raise typer.BadParameter(
+                "--test-tts requires explicit tts.allow_external_egress consent"
+            )
         checks["resolved_voice_id"] = asyncio.run(resolve_voice(settings.tts))
+        checks["requested_voice_exact_match"] = (
+            checks["resolved_voice_id"] == settings.tts.requested_voice_id
+        )
+    required = [
+        bool(checks["ffmpeg"]),
+        bool(checks["ffprobe"]),
+        bool(checks["video_directory_parent_exists"]),
+        bool(checks["video_directory_parent_writable"]),
+    ]
+    if require_supervisor_token:
+        required.append(bool(checks["supervisor_token_present"]))
+    if test_tts:
+        required.append(bool(checks.get("requested_voice_exact_match")))
+    checks["ready"] = all(required)
     typer.echo(json.dumps(checks, indent=2))
+    if not checks["ready"]:
+        raise typer.Exit(code=1)
 
 
 @app.command("list-entities")
@@ -130,6 +163,46 @@ def generate(
     typer.echo(json.dumps(video.model_dump(mode="json"), indent=2))
 
 
+@app.command("generate-demo")
+def generate_demo(config: ConfigOption = None, mock_tts: bool = False) -> None:
+    """Publish viewer-ready synthetic daily and weekly videos without an LLM call."""
+    settings = _settings(config)
+    if not mock_tts and settings.tts.provider != "edge":
+        raise typer.BadParameter("Libby demo narration requires tts.provider: edge")
+    if not mock_tts and not settings.tts.allow_external_egress:
+        raise typer.BadParameter(
+            "Libby sends the generic demo narration to Edge TTS; explicitly set "
+            "tts.allow_external_egress: true after reviewing the disclosure"
+        )
+    with render_lock(settings.video_directory):
+        scrub_supervisor_environment()
+        from .model_policy import offline_storyboard
+        from .render import render_storyboard
+
+        videos = []
+        for period in (PeriodType.DAILY, PeriodType.WEEKLY):
+            storyboard = offline_storyboard(period)
+            audit = PrivateAudit(
+                video_id="pending",
+                model="offline-template",
+                input_tokens=0,
+                output_tokens=0,
+                estimated_cost_usd=0,
+                fallback_reason="Synthetic demo; no LLM request",
+                data_categories=[],
+            )
+            videos.append(
+                render_storyboard(
+                    storyboard,
+                    settings,
+                    use_test_tone=mock_tts,
+                    private_audit=audit,
+                    lock_already_held=True,
+                ).model_dump(mode="json")
+            )
+    typer.echo(json.dumps({"items": videos}, indent=2))
+
+
 @app.command("validate-output")
 def validate_output_command(path: Path) -> None:
     from .render import validate_output
@@ -139,7 +212,42 @@ def validate_output_command(path: Path) -> None:
 
 @app.command("rebuild-index")
 def rebuild_index(config: ConfigOption = None) -> None:
-    typer.echo(json.dumps(rebuild_indexes(_settings(config).video_directory), indent=2))
+    root = _settings(config).video_directory
+    with render_lock(root):
+        counts = rebuild_indexes(root)
+    typer.echo(json.dumps(counts, indent=2))
+
+
+@app.command("prepare-addon", hidden=True)
+def prepare_addon_command(
+    options: Annotated[Path, typer.Option("--options")],
+    config_out: Annotated[Path, typer.Option("--config-out")],
+    schedule_out: Annotated[Path, typer.Option("--schedule-out")],
+) -> None:
+    from .scheduler import prepare_addon
+
+    prepared = prepare_addon(options, config_out, schedule_out)
+    typer.echo(
+        json.dumps(
+            {
+                "prepared": True,
+                "allowlisted_entities": len(prepared.entity_allowlist),
+                "external_tts_enabled": prepared.allow_external_tts,
+            }
+        )
+    )
+
+
+@app.command()
+def scheduler(
+    config: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)],
+    schedule: Annotated[Path, typer.Option("--schedule", exists=True, dir_okay=False)],
+) -> None:
+    """Run the persistent daily/weekly Home Assistant app scheduler."""
+    _settings(config)
+    from .scheduler import run_scheduler
+
+    run_scheduler(config, schedule)
 
 
 @app.command()
