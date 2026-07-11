@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Align the release scan with the existing PR and image-publish vulnerability
+  policy while continuing to fail on patchable High and Critical findings.
+
 ## 0.2.0
 
 - Add a persistent Home Assistant runner app for ARM64 and AMD64.
