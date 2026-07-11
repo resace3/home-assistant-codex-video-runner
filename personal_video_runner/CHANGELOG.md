@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Keep MoviePy's temporary audio mux file in the writable private render
+  directory, fixing first-run generation on the read-only HAOS image.
+
 ## 0.2.1
 
 - Align the release scan with the existing PR and image-publish vulnerability

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-07-10
+
+- Write MoviePy's intermediate audio mux file inside the private writable
+  render-temporary directory so the read-only application image works on HAOS.
+- Exercise daily and weekly generation from a read-only working directory.
+
 ## 0.2.1 - 2026-07-10
 
 - Aligned the tag release scan with the existing PR and image-publish policy so

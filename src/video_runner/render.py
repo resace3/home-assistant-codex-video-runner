@@ -200,6 +200,7 @@ def render_storyboard(
                 fps=settings.render.fps,
                 codec="libx264",
                 audio_codec="aac",
+                temp_audiofile=str(temporary / f"{basename}.audio.m4a"),
                 preset=settings.render.preset,
                 threads=2,
                 logger=None,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -29,11 +30,20 @@ def test_real_synthetic_daily_and_weekly_movies_match_viewer_contract(tmp_path: 
         ),
         encoding="utf-8",
     )
-    result = CliRunner().invoke(
-        app,
-        ["generate-demo", "--config", str(config), "--mock-tts"],
-        env={"VIDEO_RUNNER_TEST_MODE": "1", "OPENAI_API_KEY": "", "SUPERVISOR_TOKEN": ""},
-    )
+    original_cwd = Path.cwd()
+    read_only_cwd = tmp_path / "read-only-image-workdir"
+    read_only_cwd.mkdir()
+    read_only_cwd.chmod(0o555)
+    try:
+        os.chdir(read_only_cwd)
+        result = CliRunner().invoke(
+            app,
+            ["generate-demo", "--config", str(config), "--mock-tts"],
+            env={"VIDEO_RUNNER_TEST_MODE": "1", "OPENAI_API_KEY": "", "SUPERVISOR_TOKEN": ""},
+        )
+    finally:
+        os.chdir(original_cwd)
+        read_only_cwd.chmod(0o755)
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert {item["type"] for item in payload["items"]} == {"daily", "weekly"}
