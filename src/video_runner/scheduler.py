@@ -16,7 +16,7 @@ from .config import DataConfig, GenerationConfig, RenderConfig, Settings, TTSCon
 from .storage import atomic_json, rebuild_indexes, render_lock
 
 TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-PERSONALIZATION_VERSION = 2
+PERSONALIZATION_VERSION = 3
 
 
 class SchedulerOptions(BaseModel):
@@ -42,6 +42,14 @@ class SchedulerOptions(BaseModel):
     render_height: int = Field(default=1280, ge=426, le=1920)
     render_fps: int = Field(default=24, ge=12, le=30)
     render_preset: str = "veryfast"
+    video_style: str = "engaging"
+    video_energy: str = "balanced"
+    motion_level: str = "medium"
+    music_enabled: bool = True
+    sound_effects_enabled: bool = True
+    captions_style: str = "animated"
+    video_theme: str = "adaptive"
+    motion_sample_fps: int = Field(default=8, ge=4, le=12)
 
     @field_validator("daily_time", "weekly_time")
     @classmethod
@@ -97,6 +105,14 @@ def prepare_addon(
             height=options.render_height,
             fps=options.render_fps,
             preset=options.render_preset,
+            style=options.video_style,
+            energy=options.video_energy,
+            motion_level=options.motion_level,
+            music_enabled=options.music_enabled,
+            sound_effects_enabled=options.sound_effects_enabled,
+            captions_style=options.captions_style,
+            theme=options.video_theme,
+            motion_sample_fps=options.motion_sample_fps,
         ),
     )
     config_path.parent.mkdir(parents=True, exist_ok=True)

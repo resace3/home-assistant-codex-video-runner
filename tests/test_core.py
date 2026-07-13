@@ -126,7 +126,7 @@ def test_offline_storyboard_is_one_minute_and_natural_word_count() -> None:
 def _personal_summary() -> dict[str, object]:
     snapshots = {
         "sensor.private_steps": SensorSnapshot(
-            "sensor.private_steps", "Tabby's Steps", "8123", "steps", "distance"
+            "sensor.private_steps", "Sample Steps", "8123", "steps", "distance"
         ),
         "sensor.bedroom_temperature": SensorSnapshot(
             "sensor.bedroom_temperature", "Bedroom Temperature", "72.4", "°F", "temperature"
@@ -146,7 +146,7 @@ def _personal_summary() -> dict[str, object]:
 def test_personal_summary_contains_real_local_facts_but_external_preview_does_not() -> None:
     summary = _personal_summary()
     encoded = json.dumps(summary)
-    assert "Tabby's Steps" in encoded
+    assert '"label": "Steps"' in encoded
     assert "8,123 steps" in encoded
     assert summary["discovered_sensor_count"] == 3
     external = json.dumps(external_disclosure_summary(summary))
@@ -157,13 +157,13 @@ def test_personal_summary_contains_real_local_facts_but_external_preview_does_no
 
 def test_personal_storyboard_is_real_on_screen_and_generic_in_external_tts() -> None:
     board = personalized_storyboard(PeriodType.DAILY, _personal_summary())
-    visual_text = " ".join(f"{scene.heading} {scene.body}" for scene in board.scenes)
-    assert "Tabby's Steps" in visual_text
+    visual_text = json.dumps(board.model_dump(mode="json"))
+    assert "Steps" in visual_text
     assert "8,123 steps" in visual_text
     assert "Tabby" not in board.narration
     assert "8,123" not in board.narration
-    assert len(board.narration.split()) == 151
-    assert board.narration.count(".") == 1
+    assert len(board.narration.split()) == 150
+    assert board.narration.count(".") <= 3
     assert sum(scene.duration_seconds for scene in board.scenes) == 60
 
 

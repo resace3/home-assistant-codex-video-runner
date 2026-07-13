@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 - 2026-07-13
+
+- Replace held slide images with a layered mobile-first story renderer: semantic
+  story selection, adaptive themes, reusable charts, eased motion, safe captions,
+  and distinct daily and weekly narrative structures.
+- Add friendly sensor naming and private on-screen baselines, deltas, trend shapes,
+  comparisons, and recommendations while keeping narration free of raw identifiers
+  and readings.
+- Add a deterministic ambient bed and cue layer, preserve Libby at natural 1.0x,
+  and normalize the final mix to -16 LUFS without long pauses.
+- Add engagement, motion, caption, layout, theme, privacy, audio, sparse-data, and
+  real H.264/AAC integration tests plus a frame-by-frame visual QA utility.
+
 ## 0.3.1 - 2026-07-13
 
 - Retune the generic personal-story narration to 151 words with lighter

@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
+from moviepy import VideoFileClip
 from typer.testing import CliRunner
 
 from video_runner.cli import app
@@ -22,8 +24,8 @@ def test_real_synthetic_daily_and_weekly_movies_match_viewer_contract(tmp_path: 
                 f"video_directory: {share.as_posix()}",
                 f"private_data_directory: {private.as_posix()}",
                 "render:",
-                "  width: 240",
-                "  height: 426",
+                "  width: 360",
+                "  height: 640",
                 "  fps: 12",
                 "  preset: ultrafast",
             )
@@ -36,17 +38,32 @@ def test_real_synthetic_daily_and_weekly_movies_match_viewer_contract(tmp_path: 
     read_only_cwd.chmod(0o555)
     try:
         os.chdir(read_only_cwd)
-        result = CliRunner().invoke(
-            app,
-            ["generate-demo", "--config", str(config), "--mock-tts"],
-            env={"VIDEO_RUNNER_TEST_MODE": "1", "OPENAI_API_KEY": "", "SUPERVISOR_TOKEN": ""},
-        )
+        results = [
+            CliRunner().invoke(
+                app,
+                [
+                    "generate",
+                    "--config",
+                    str(config),
+                    "--period",
+                    period,
+                    "--synthetic",
+                    "--mock-tts",
+                ],
+                env={
+                    "VIDEO_RUNNER_TEST_MODE": "1",
+                    "OPENAI_API_KEY": "",
+                    "SUPERVISOR_TOKEN": "",
+                },
+            )
+            for period in ("daily", "weekly")
+        ]
     finally:
         os.chdir(original_cwd)
         read_only_cwd.chmod(0o755)
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert {item["type"] for item in payload["items"]} == {"daily", "weekly"}
+    assert all(result.exit_code == 0 for result in results), [
+        (result.output, repr(result.exception)) for result in results
+    ]
     catalog_path = share / "indexes" / "all.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     assert len(catalog) == 2
@@ -61,3 +78,20 @@ def test_real_synthetic_daily_and_weekly_movies_match_viewer_contract(tmp_path: 
         assert 55 <= report["duration_seconds"] <= 65
         assert report["audio"] is True
         assert report["validation_backend"] == "moviepy+ffprobe+ffmpeg-decode"
+        with VideoFileClip(str(folder / item["video_filename"])) as clip:
+            scene_frames = [
+                clip.get_frame(second).astype(np.int16) for second in (2, 7, 15, 25, 35, 45, 55)
+            ]
+            within_scene = float(
+                np.mean(
+                    np.abs(
+                        clip.get_frame(0.5).astype(np.int16) - clip.get_frame(2.5).astype(np.int16)
+                    )
+                )
+            )
+        structural_changes = [
+            float(np.mean(np.abs(left - right)))
+            for left, right in zip(scene_frames, scene_frames[1:], strict=False)
+        ]
+        assert min(structural_changes) > 1.0
+        assert within_scene > 0.5

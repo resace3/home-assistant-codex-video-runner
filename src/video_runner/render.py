@@ -12,12 +12,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
 
+import numpy as np
 from imageio_ffmpeg import get_ffmpeg_exe
-from moviepy import AudioFileClip, ImageClip, VideoFileClip, concatenate_videoclips
+from moviepy import AudioFileClip, VideoClip, VideoFileClip, concatenate_videoclips
+from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 
+from .audio import normalize_and_mix, procedural_ambient
+from .captions import write_vtt
 from .config import RenderConfig, Settings
-from .schemas import BrowserVideo, PeriodType, PrivateAudit, Storyboard
+from .layouts import render_scene_frame
+from .schemas import BrowserVideo, PeriodType, PrivateAudit, Scene, Storyboard
 from .storage import atomic_json, rebuild_indexes, render_lock
 from .tts import synthesize_edge, synthesize_test_tone
 
@@ -40,6 +45,37 @@ def narration_words_per_minute(text: str, duration_seconds: float) -> float:
     return len(text.split()) / duration_seconds * 60
 
 
+def _animated_clip(
+    scene: Scene,
+    config: RenderConfig,
+    *,
+    scale: float,
+    global_start: float,
+) -> VideoClip:
+    cache_bucket = -1
+    cache_frame: NDArray[np.uint8] | None = None
+
+    def frame_function(seconds: float) -> NDArray[np.uint8]:
+        nonlocal cache_bucket, cache_frame
+        bucket = max(0, int(seconds * config.motion_sample_fps))
+        if cache_frame is None or bucket != cache_bucket:
+            scaled_seconds = bucket / config.motion_sample_fps
+            scene_seconds = min(scene.duration_seconds, scaled_seconds / scale)
+            cache_frame = render_scene_frame(
+                scene,
+                config,
+                scene_seconds,
+                global_start + scene_seconds,
+            )
+            cache_bucket = bucket
+        return cache_frame
+
+    return VideoClip(
+        frame_function=frame_function,
+        duration=scene.duration_seconds * scale,
+    )
+
+
 def _font(size: int) -> Any:
     candidates = (
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
@@ -51,13 +87,12 @@ def _font(size: int) -> Any:
     return ImageFont.load_default()
 
 
-def _wrap(draw: ImageDraw.ImageDraw, text: str, font: Any, width: int) -> list[str]:
-    words = text.split()
+def _wrap(draw: ImageDraw.ImageDraw, text: str, face: Any, width: int) -> list[str]:
     lines: list[str] = []
     current = ""
-    for word in words:
+    for word in text.split():
         candidate = f"{current} {word}".strip()
-        if draw.textlength(candidate, font=font) <= width:
+        if draw.textlength(candidate, font=face) <= width:
             current = candidate
         else:
             if current:
@@ -157,11 +192,6 @@ def render_storyboard(
         ) as temporary_name,
     ):
         temporary = Path(temporary_name)
-        frames: list[Path] = []
-        for index, scene in enumerate(storyboard.scenes):
-            frame = temporary / f"scene-{index:02}.png"
-            _scene_image(frame, scene.heading, scene.body, settings.render, index)
-            frames.append(frame)
         audio_path = temporary / ("narration.wav" if use_test_tone else "narration.mp3")
         if use_test_tone or settings.tts.provider == "mock":
             voice = synthesize_test_tone(audio_path, 60)
@@ -171,10 +201,11 @@ def render_storyboard(
                     "External TTS is disabled; review the narration disclosure and opt in explicitly"
                 )
             voice = synthesize_edge(storyboard.narration, audio_path, settings.tts)
-        image_clips: list[ImageClip] = []
+        scene_clips: list[VideoClip] = []
         audio: AudioFileClip | None = None
         video = None
         output = temporary / f"{basename}.mp4"
+        first_frame = temporary / "first-frame.png"
         try:
             audio = AudioFileClip(str(audio_path))
             target_duration = float(audio.duration)
@@ -190,11 +221,21 @@ def render_storyboard(
                         "shorten the script or extend scenes instead of changing playback speed"
                     )
             scale = target_duration / sum(scene.duration_seconds for scene in storyboard.scenes)
-            image_clips = [
-                ImageClip(str(frame), duration=scene.duration_seconds * scale)
-                for frame, scene in zip(frames, storyboard.scenes, strict=True)
-            ]
-            video = concatenate_videoclips(image_clips, method="compose").with_audio(audio)
+            global_start = 0.0
+            for scene in storyboard.scenes:
+                scene_clips.append(
+                    _animated_clip(
+                        scene,
+                        settings.render,
+                        scale=scale,
+                        global_start=global_start,
+                    )
+                )
+                global_start += scene.duration_seconds
+            Image.fromarray(
+                render_scene_frame(storyboard.scenes[0], settings.render, 0.15, 0.15)
+            ).save(first_frame, "PNG", optimize=True)
+            video = concatenate_videoclips(scene_clips, method="compose").with_audio(audio)
             video.write_videofile(
                 str(output),
                 fps=settings.render.fps,
@@ -211,40 +252,35 @@ def render_storyboard(
                 video.close()
             if audio is not None:
                 audio.close()
-            for clip in image_clips:
+            for clip in scene_clips:
                 clip.close()
         normalized = temporary / f"{basename}.normalized.mp4"
-        loudness = subprocess.run(
-            [
-                get_ffmpeg_exe(),
-                "-y",
-                "-i",
-                str(output),
-                "-c:v",
-                "copy",
-                "-af",
-                "loudnorm=I=-16:TP=-1.5:LRA=11",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "128k",
-                "-movflags",
-                "+faststart",
-                str(normalized),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
+        ambient_path: Path | None = None
+        if settings.render.music_enabled or settings.render.sound_effects_enabled:
+            ambient_path = temporary / "procedural-ambient.wav"
+            cues = [
+                scene.start_seconds * scale
+                for scene in storyboard.scenes
+                if settings.render.sound_effects_enabled and scene.audio_cue != "none"
+            ]
+            procedural_ambient(
+                ambient_path,
+                target_duration,
+                cues,
+                music_enabled=settings.render.music_enabled,
+            )
+        normalize_and_mix(
+            output,
+            normalized,
+            ambient=ambient_path,
+            duration=target_duration,
         )
-        if loudness.returncode:
-            raise ValueError("EBU R128 loudness normalization failed")
         os.replace(normalized, output)
         _decode_validate(output, settings.render.width, settings.render.height)
         captions = temporary / f"{basename}.vtt"
         thumbnail = temporary / f"{basename}.webp"
-        _captions(captions, storyboard.narration, target_duration)
-        _thumbnail(frames[0], thumbnail)
+        write_vtt(captions, storyboard.narration, target_duration)
+        _thumbnail(first_frame, thumbnail)
         browser = BrowserVideo(
             id=identifier,
             type=storyboard.period_type,

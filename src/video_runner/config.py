@@ -52,6 +52,14 @@ class RenderConfig(BaseModel):
     height: int = Field(default=1280, ge=426, le=1920)
     fps: int = Field(default=24, ge=12, le=30)
     preset: str = "medium"
+    style: str = Field(default="engaging", pattern=r"^(engaging|calm|minimal)$")
+    energy: str = Field(default="balanced", pattern=r"^(calm|balanced|bright)$")
+    motion_level: str = Field(default="medium", pattern=r"^(low|medium|high)$")
+    music_enabled: bool = True
+    sound_effects_enabled: bool = True
+    captions_style: str = Field(default="animated", pattern=r"^(animated|standard|off)$")
+    theme: str = Field(default="adaptive", pattern=r"^(adaptive|indigo|teal|slate)$")
+    motion_sample_fps: int = Field(default=8, ge=4, le=12)
 
 
 class Settings(BaseModel):
