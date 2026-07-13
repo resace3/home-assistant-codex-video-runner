@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 - 2026-07-13
+
+- Retune the generic personal-story narration to 151 words with lighter
+  punctuation so Libby remains inside the 55-65 second render window at natural
+  1.0x without trimming or speedup.
+
 ## 0.3.0 - 2026-07-13
 
 - Automatically discover every Home Assistant sensor and binary-sensor entity

@@ -162,7 +162,8 @@ def test_personal_storyboard_is_real_on_screen_and_generic_in_external_tts() -> 
     assert "8,123 steps" in visual_text
     assert "Tabby" not in board.narration
     assert "8,123" not in board.narration
-    assert 145 <= len(board.narration.split()) <= 160
+    assert len(board.narration.split()) == 151
+    assert board.narration.count(".") == 1
     assert sum(scene.duration_seconds for scene in board.scenes) == 60
 
 
