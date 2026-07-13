@@ -1,9 +1,10 @@
 # Home Assistant Codex Video Runner
 
 A privacy-first, deterministic MoviePy pipeline for one-minute daily and weekly
-Home Assistant reflections. The public repository contains only generic code
+Home Assistant data stories. The public repository contains only generic code
 and synthetic fixtures. The supervised app can automatically read every sensor
-and binary-sensor entity, then create local visual cards from real values.
+and binary-sensor entity, rank the most useful local patterns, and turn them into
+animated charts, comparisons, progress visuals, and practical reflections.
 
 > This is not a medical device. Generated observations are descriptive, not medical advice. Review the privacy and cost implications before enabling any external provider.
 
@@ -29,7 +30,7 @@ The browser-safe manifest contains titles, dates, filenames, duration, and a sho
 
 Add this repository to Home Assistant's app store, install **Personal Video Runner**, review its options, and explicitly enable `allow_external_tts` before starting it. The headless app owns Python, MoviePy, FFmpeg, FFprobe, Libby TTS, and its scheduler; it does not depend on a shell app or a host package install.
 
-On the first 0.3 start, `generate_personal_on_start` publishes one real daily
+On the first 0.4 start, `generate_personal_on_start` publishes one real daily
 and one real weekly video from the instance's sensors. Recurring jobs run inside
 the supervised app and survive restarts. Keep Advanced SSH protected and
 running if you use it for unrelated work: this project never stops, restarts,
@@ -122,7 +123,12 @@ python -m venv .venv
 .venv/bin/pytest -m integration
 ```
 
-The integration test creates a real 55–65 second low-resolution H.264/AAC MP4 from synthetic data and decodes it fully. Public CI never calls Home Assistant, OpenAI, or live TTS.
+The integration test creates real 55–65 second low-resolution daily and weekly
+H.264/AAC MP4s from synthetic data, decodes them fully, samples all seven scenes,
+and asserts both structural variation and within-scene motion. Public CI never
+calls Home Assistant, OpenAI, or live TTS. `scripts/visual_qa.py` can build a
+three-second contact sheet and report frame-change cadence, composition diversity,
+integrated loudness, silence, duration, resolution, and file size for release QA.
 
 ## Update, rollback, and uninstall
 

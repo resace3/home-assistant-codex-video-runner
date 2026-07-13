@@ -1,5 +1,5 @@
 name: Personal Video Runner
-version: "0.3.1"
+version: "0.4.0"
 slug: personal_video_runner
 description: Privacy-first daily and weekly video generator for Personal Video Studio
 url: https://github.com/resace3/home-assistant-codex-video-runner
@@ -33,6 +33,14 @@ options:
   render_height: 1280
   render_fps: 24
   render_preset: veryfast
+  video_style: engaging
+  video_energy: balanced
+  motion_level: medium
+  music_enabled: true
+  sound_effects_enabled: true
+  captions_style: animated
+  video_theme: adaptive
+  motion_sample_fps: 8
 schema:
   run_demo_on_start: bool
   generate_personal_on_start: bool
@@ -55,3 +63,11 @@ schema:
   render_height: "int(426,1920)"
   render_fps: "int(12,30)"
   render_preset: "list(ultrafast|superfast|veryfast|faster|fast|medium)"
+  video_style: "list(engaging|calm|minimal)"
+  video_energy: "list(calm|balanced|bright)"
+  motion_level: "list(low|medium|high)"
+  music_enabled: bool
+  sound_effects_enabled: bool
+  captions_style: "list(animated|standard|off)"
+  video_theme: "list(adaptive|indigo|teal|slate)"
+  motion_sample_fps: "int(4,12)"

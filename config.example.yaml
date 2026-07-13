@@ -35,3 +35,11 @@ render:
   height: 1280
   fps: 24
   preset: medium
+  style: engaging
+  energy: balanced
+  motion_level: medium
+  music_enabled: true
+  sound_effects_enabled: true
+  captions_style: animated
+  theme: adaptive
+  motion_sample_fps: 8

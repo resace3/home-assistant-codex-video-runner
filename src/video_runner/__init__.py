@@ -1,3 +1,3 @@
 """Privacy-first Home Assistant personalized video runner."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

@@ -5,6 +5,7 @@ import re
 import statistics
 from collections.abc import Mapping
 
+from .friendly import friendly_display_name
 from .home_assistant import SensorSnapshot
 from .security import redact
 
@@ -72,6 +73,12 @@ def _trend(values: list[float]) -> str:
     return "holding steady"
 
 
+def _sample(values: list[float], limit: int = 14) -> list[float]:
+    if len(values) <= limit:
+        return values
+    return [values[round(index * (len(values) - 1) / (limit - 1))] for index in range(limit)]
+
+
 def _priority(snapshot: SensorSnapshot, history: list[object]) -> float:
     haystack = f"{snapshot.name} {snapshot.entity_id} {snapshot.device_class}".lower()
     score = float(
@@ -94,7 +101,7 @@ def _priority(snapshot: SensorSnapshot, history: list[object]) -> float:
 def _highlight(snapshot: SensorSnapshot, history: list[object]) -> dict[str, object] | None:
     if snapshot.state.strip().lower() in MISSING_STATES:
         return None
-    label = _clean(snapshot.name, 62)
+    label = friendly_display_name(_clean(snapshot.name, 62))
     current_number = _number(snapshot.state)
     current = (
         _with_unit(_format_number(current_number), snapshot.unit)
@@ -104,24 +111,47 @@ def _highlight(snapshot: SensorSnapshot, history: list[object]) -> dict[str, obj
     numeric_history = [_number(value) for value in history]
     numeric_values = [value for value in numeric_history if value is not None]
     if numeric_values:
+        baseline = statistics.median(numeric_values)
+        trend = _trend(numeric_values)
         low = _with_unit(_format_number(min(numeric_values)), snapshot.unit)
         high = _with_unit(_format_number(max(numeric_values)), snapshot.unit)
-        detail = f"{_trend(numeric_values)}; period range {low} to {high}"
+        if trend == "trending up":
+            detail = f"Rose across the period; ranged from {low} to {high}"
+        elif trend == "trending down":
+            detail = f"Eased across the period; ranged from {low} to {high}"
+        else:
+            detail = f"Stayed close to its usual range of {low} to {high}"
+        delta_percent = (
+            (current_number - baseline) / abs(baseline) * 100
+            if current_number is not None and abs(baseline) > 1e-9
+            else None
+        )
     elif history:
         normalized = [_clean(value, 30) for value in history]
         changes = sum(
             left != right for left, right in zip(normalized, normalized[1:], strict=False)
         )
         detail = f"{changes} recorded state change{'s' if changes != 1 else ''}"
+        baseline = None
+        delta_percent = None
+        trend = "changed" if changes else "steady"
     else:
         detail = "current state available; no recorded period history"
+        baseline = None
+        delta_percent = None
+        trend = "current"
     return {
-        "entity_id": snapshot.entity_id,
         "label": label,
         "current": current,
         "detail": detail,
         "device_class": _clean(snapshot.device_class or "sensor", 32),
         "observations": len(history),
+        "numeric_value": current_number,
+        "baseline": baseline,
+        "delta_percent": round(delta_percent, 2) if delta_percent is not None else None,
+        "trend": trend,
+        "unit": _clean(snapshot.unit, 12),
+        "chart_values": [round(value, 4) for value in _sample(numeric_values)],
     }
 
 
@@ -141,7 +171,9 @@ def build_personal_summary(
         if highlight is None:
             continue
         usable_count += 1
-        candidates.append((_priority(snapshot, history), entity_id, highlight))
+        score = _priority(snapshot, history)
+        highlight["story_score"] = round(score, 3)
+        candidates.append((score, entity_id, highlight))
     candidates.sort(key=lambda item: (-item[0], item[1]))
     highlights = [item[2] for item in candidates[:max_highlights]]
     return {

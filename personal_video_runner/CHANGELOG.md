@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Turn personal readings into animated daily and weekly data stories with charts,
+  comparisons, progress visuals, contextual recommendations, and adaptive themes.
+- Keep raw values visual and local while Libby narrates only privacy-safe categories.
+- Add optional procedural music, cue sounds, animated captions, and motion controls.
+
 ## 0.3.1
 
 - Keep personal-story Libby narration within the natural one-minute media gate.

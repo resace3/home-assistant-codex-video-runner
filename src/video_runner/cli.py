@@ -42,20 +42,44 @@ def _collect(settings: Settings, period: PeriodType, synthetic: bool) -> dict[st
         from .home_assistant import SensorSnapshot
 
         snapshots = {
-            "sensor.synthetic_steps": SensorSnapshot(
-                "sensor.synthetic_steps", "Synthetic Steps", "7.9", "k", "distance"
+            "sensor.synthetic_sleep_minutes_asleep": SensorSnapshot(
+                "sensor.synthetic_sleep_minutes_asleep",
+                "Synthetic Sleep Minutes Asleep",
+                "428",
+                "min",
+                "duration",
             ),
-            "sensor.synthetic_temperature": SensorSnapshot(
-                "sensor.synthetic_temperature",
-                "Synthetic Temperature",
-                "44",
-                "°F",
-                "temperature",
+            "sensor.synthetic_sleep_efficiency": SensorSnapshot(
+                "sensor.synthetic_sleep_efficiency",
+                "Synthetic Sleep Efficiency",
+                "91",
+                "%",
+                "percentage",
+            ),
+            "sensor.synthetic_steps": SensorSnapshot(
+                "sensor.synthetic_steps", "Synthetic Steps", "8123", "steps", "distance"
+            ),
+            "sensor.synthetic_resting_heart_rate": SensorSnapshot(
+                "sensor.synthetic_resting_heart_rate",
+                "Synthetic Resting Heart Rate",
+                "61",
+                "bpm",
+                "heart_rate",
+            ),
+            "sensor.synthetic_meditation_minutes": SensorSnapshot(
+                "sensor.synthetic_meditation_minutes",
+                "Synthetic Meditation Minutes",
+                "18",
+                "min",
+                "duration",
             ),
         }
         histories: dict[str, list[object]] = {
-            "sensor.synthetic_steps": [7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.8, 7.9],
-            "sensor.synthetic_temperature": [39, 40, 40, 41, 42, 43, 43, 44],
+            "sensor.synthetic_sleep_minutes_asleep": [382, 395, 401, 415, 422, 428],
+            "sensor.synthetic_sleep_efficiency": [86, 88, 87, 90, 91, 91],
+            "sensor.synthetic_steps": [2200, 3100, 4700, 6400, 7800, 8123],
+            "sensor.synthetic_resting_heart_rate": [64, 63, 62, 61, 60, 61],
+            "sensor.synthetic_meditation_minutes": [0, 8, 10, 12, 15, 18],
         }
         return build_personal_summary(
             snapshots,

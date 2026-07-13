@@ -21,8 +21,14 @@ class PeriodType(StrEnum):
 
 class Visual(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: str = Field(pattern=r"^(gradient|chart|icon_grid|timeline|photo_placeholder)$")
+    kind: str = Field(
+        pattern=(
+            r"^(gradient|chart|icon_grid|timeline|photo_placeholder|hook|metric_grid|"
+            r"progress_ring|sparkline|seven_day|comparison|recommendation|closing|data_quality)$"
+        )
+    )
     data_reference: str = Field(max_length=80)
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 class Scene(BaseModel):
@@ -33,6 +39,15 @@ class Scene(BaseModel):
     heading: str = Field(min_length=1, max_length=80)
     body: str = Field(max_length=240)
     visual: Visual
+    scene_id: str = Field(default="scene", pattern=r"^[a-z0-9-]{2,50}$")
+    layout: str = Field(default="focus", max_length=40)
+    accent: str = Field(default="indigo", max_length=24)
+    transition_in: str = Field(default="fade-slide", max_length=32)
+    transition_out: str = Field(default="crossfade", max_length=32)
+    caption: str = Field(default="", max_length=120)
+    caption_behavior: str = Field(default="phrase", max_length=32)
+    audio_cue: str = Field(default="none", max_length=24)
+    accessibility_description: str = Field(default="", max_length=240)
 
 
 class Storyboard(BaseModel):
