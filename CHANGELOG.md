@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 - 2026-07-13
+
+- Automatically discover every Home Assistant sensor and binary-sensor entity
+  through the Supervisor-provided Core API credential.
+- Read daily and weekly history in bounded batches and rank five useful local
+  highlights without sending personal readings to an LLM or TTS service.
+- Render real friendly names, current values, units, ranges, and trends on the
+  private visual cards while keeping Libby narration generic at natural 1.0x.
+- Generate one personal daily and weekly story on the first 0.3 startup, then
+  continue the configured recurring schedules.
+
 ## 0.2.2 - 2026-07-10
 
 - Write MoviePy's intermediate audio mux file inside the private writable

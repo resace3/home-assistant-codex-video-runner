@@ -8,11 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entity_allowlist: list[str] = Field(default_factory=list, max_length=20)
+    auto_discover_sensors: bool = True
+    include_binary_sensors: bool = True
+    entity_allowlist: list[str] = Field(default_factory=list, max_length=2_000)
+    max_discovered_entities: int = Field(default=2_000, ge=1, le=5_000)
     history_hours_daily: int = Field(default=24, ge=1, le=168)
     history_days_weekly: int = Field(default=7, ge=1, le=31)
+    history_batch_size: int = Field(default=20, ge=1, le=100)
     max_observations_per_entity: int = Field(default=512, ge=8, le=2048)
-    max_response_bytes: int = Field(default=2_000_000, ge=64_000, le=10_000_000)
+    max_response_bytes: int = Field(default=10_000_000, ge=64_000, le=20_000_000)
+    max_highlights: int = Field(default=5, ge=3, le=5)
     include_raw_values_in_external_requests: bool = False
     anonymize_entity_names: bool = True
 

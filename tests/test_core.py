@@ -14,9 +14,10 @@ from typer.testing import CliRunner
 from video_runner import __version__
 from video_runner.cli import app
 from video_runner.config import Settings, TTSConfig, load_settings
-from video_runner.home_assistant import HomeAssistantClient
-from video_runner.model_policy import estimate_cost, offline_storyboard
-from video_runner.scheduler import prepare_addon, should_run
+from video_runner.home_assistant import HomeAssistantClient, SensorSnapshot
+from video_runner.model_policy import estimate_cost, offline_storyboard, personalized_storyboard
+from video_runner.personalization import build_personal_summary, external_disclosure_summary
+from video_runner.scheduler import _run_startup_generation, prepare_addon, should_run
 from video_runner.schemas import (
     BrowserVideo,
     PeriodType,
@@ -120,6 +121,49 @@ def test_offline_storyboard_is_one_minute_and_natural_word_count() -> None:
     assert sum(scene.duration_seconds for scene in board.scenes) == 60
     assert 145 <= len(board.narration.split()) <= 160
     assert estimated_narration_seconds(board.narration) == pytest.approx(60.8)
+
+
+def _personal_summary() -> dict[str, object]:
+    snapshots = {
+        "sensor.private_steps": SensorSnapshot(
+            "sensor.private_steps", "Tabby's Steps", "8123", "steps", "distance"
+        ),
+        "sensor.bedroom_temperature": SensorSnapshot(
+            "sensor.bedroom_temperature", "Bedroom Temperature", "72.4", "°F", "temperature"
+        ),
+        "binary_sensor.front_door": SensorSnapshot(
+            "binary_sensor.front_door", "Front Door", "off", "", "door"
+        ),
+    }
+    histories: dict[str, list[object]] = {
+        "sensor.private_steps": [1000, 2100, 3400, 4800, 5900, 6800, 7500, 8123],
+        "sensor.bedroom_temperature": [70.1, 70.8, 71.4, 71.8, 72.0, 72.4],
+        "binary_sensor.front_door": ["off", "on", "off"],
+    }
+    return build_personal_summary(snapshots, histories, period="daily", max_highlights=5)
+
+
+def test_personal_summary_contains_real_local_facts_but_external_preview_does_not() -> None:
+    summary = _personal_summary()
+    encoded = json.dumps(summary)
+    assert "Tabby's Steps" in encoded
+    assert "8,123 steps" in encoded
+    assert summary["discovered_sensor_count"] == 3
+    external = json.dumps(external_disclosure_summary(summary))
+    assert "Tabby" not in external
+    assert "8,123" not in external
+    assert "entity_id" not in external
+
+
+def test_personal_storyboard_is_real_on_screen_and_generic_in_external_tts() -> None:
+    board = personalized_storyboard(PeriodType.DAILY, _personal_summary())
+    visual_text = " ".join(f"{scene.heading} {scene.body}" for scene in board.scenes)
+    assert "Tabby's Steps" in visual_text
+    assert "8,123 steps" in visual_text
+    assert "Tabby" not in board.narration
+    assert "8,123" not in board.narration
+    assert 145 <= len(board.narration.split()) <= 160
+    assert sum(scene.duration_seconds for scene in board.scenes) == 60
 
 
 def test_storyboard_rejects_overlap() -> None:
@@ -242,6 +286,62 @@ def test_history_client_uses_period_aggregates_not_current_state(
     assert "/states/" not in str(seen["path"])
 
 
+def test_sensor_discovery_reads_all_sensor_domains_and_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        content = b"bounded"
+
+        def json(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "entity_id": "sensor.steps",
+                    "state": "8123",
+                    "attributes": {
+                        "friendly_name": "My Steps",
+                        "unit_of_measurement": "steps",
+                        "device_class": "distance",
+                    },
+                },
+                {
+                    "entity_id": "binary_sensor.front_door",
+                    "state": "off",
+                    "attributes": {"friendly_name": "Front Door", "device_class": "door"},
+                },
+                {"entity_id": "light.kitchen", "state": "on", "attributes": {}},
+            ]
+
+    client = object.__new__(HomeAssistantClient)
+    seen: dict[str, object] = {}
+
+    def fake_get(path: str, *, params: dict[str, str] | None = None) -> Response:
+        seen.update({"path": path, "params": params})
+        return Response()
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    snapshots = client.fetch_sensor_snapshots()
+    assert list(snapshots) == ["binary_sensor.front_door", "sensor.steps"]
+    assert snapshots["sensor.steps"].name == "My Steps"
+    assert snapshots["sensor.steps"].unit == "steps"
+    assert seen == {"path": "/states", "params": None}
+
+
+def test_sensor_discovery_enforces_complete_read_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        content = b"bounded"
+
+        def json(self) -> list[dict[str, object]]:
+            return [
+                {"entity_id": f"sensor.item_{index}", "state": "1", "attributes": {}}
+                for index in range(3)
+            ]
+
+    client = object.__new__(HomeAssistantClient)
+    monkeypatch.setattr(client, "_get", lambda *_args, **_kwargs: Response())
+    with pytest.raises(RuntimeError, match="above the configured safety cap"):
+        client.fetch_sensor_snapshots(max_entities=2)
+
+
 def test_empty_allowlist_never_calls_history_api(monkeypatch: pytest.MonkeyPatch) -> None:
     client = object.__new__(HomeAssistantClient)
 
@@ -272,6 +372,36 @@ def test_history_client_caps_observations(monkeypatch: pytest.MonkeyPatch) -> No
     assert history["sensor.example"][-1] == "99"
 
 
+def test_history_client_splits_oversized_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Response:
+        def __init__(self, entities: list[str], oversized: bool) -> None:
+            self.content = b"x" * (20 if oversized else 2)
+            self.entities = entities
+
+        def json(self) -> list[list[dict[str, object]]]:
+            return [[{"entity_id": entity_id, "state": "1"}] for entity_id in self.entities]
+
+    calls: list[list[str]] = []
+    client = object.__new__(HomeAssistantClient)
+
+    def fake_get(_path: str, *, params: dict[str, str]) -> Response:
+        entities = params["filter_entity_id"].split(",")
+        calls.append(entities)
+        return Response(entities, oversized=len(entities) > 1)
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    history = client.fetch_allowlisted_history(
+        ["sensor.one", "sensor.two"],
+        period="daily",
+        daily_hours=24,
+        weekly_days=7,
+        max_response_bytes=10,
+        batch_size=2,
+    )
+    assert calls == [["sensor.one", "sensor.two"], ["sensor.one"], ["sensor.two"]]
+    assert history == {"sensor.one": ["1"], "sensor.two": ["1"]}
+
+
 def test_prepare_addon_and_schedule_are_private_and_deterministic(tmp_path: Path) -> None:
     options_path = tmp_path / "options.json"
     config_path = tmp_path / "private" / "config.yaml"
@@ -293,9 +423,33 @@ def test_prepare_addon_and_schedule_are_private_and_deterministic(tmp_path: Path
     assert settings.tts.requested_voice_id == "en-GB-LibbyNeural"
     assert settings.tts.allow_external_egress is True
     assert settings.data.entity_allowlist == ["sensor.example"]
+    assert settings.data.auto_discover_sensors is True
     due, key = should_run(datetime(2026, 7, 10, 6, 15, tzinfo=UTC), "06:15", "")
     assert due is True
     assert should_run(datetime(2026, 7, 10, 6, 15, tzinfo=UTC), "06:15", key)[0] is False
+
+
+def test_startup_generates_personal_daily_and_weekly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(
+        video_directory=tmp_path / "share",
+        private_data_directory=tmp_path / "private",
+    )
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        "video_runner.scheduler._run_child",
+        lambda _config, *arguments: calls.append(arguments),
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text("{}", encoding="utf-8")
+    schedule: dict[str, object] = {"generate_personal_on_start": True}
+    _run_startup_generation(settings, schedule, config)
+    _run_startup_generation(settings, schedule, config)
+    assert calls == [
+        ("generate", "--period", "daily"),
+        ("generate", "--period", "weekly"),
+    ]
 
 
 def test_exact_libby_mapping_and_no_silent_substitution(monkeypatch: pytest.MonkeyPatch) -> None:

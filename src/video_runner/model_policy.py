@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from openai import APIError, OpenAI
 
 from .config import GenerationConfig
+from .personalization import external_disclosure_summary
 from .schemas import PeriodType, Scene, Storyboard, Visual
 
 # Verified against official OpenAI model pages on 2026-07-10. Runtime overrides are
@@ -110,19 +111,129 @@ def offline_storyboard(period: PeriodType) -> Storyboard:
     )
 
 
+def personalized_storyboard(period: PeriodType, summary: dict[str, object]) -> Storyboard:
+    highlights_value = summary.get("highlights")
+    highlights = (
+        [item for item in highlights_value if isinstance(item, dict)]
+        if isinstance(highlights_value, list)
+        else []
+    )
+    if not highlights:
+        return offline_storyboard(period)
+    period_word = "daily" if period == PeriodType.DAILY else "weekly"
+    narration = (
+        f"Welcome to your {period_word} Home Assistant reflection. The cards on screen were built "
+        "locally from your own current sensor states and the readings recorded during this period. "
+        "Start with the first highlighted signal, then compare its current value with its recent "
+        "direction. Move through the next cards slowly, noticing what changed, what stayed steady, "
+        "and which readings may reflect ordinary routines in your home. A shift is context, not a "
+        "diagnosis, and a single value rarely tells the whole story. Use these observations to "
+        "choose one small, practical next step, such as checking a device, adjusting a routine, or "
+        "simply watching the pattern for another period. Your Supervisor credential was used only "
+        "inside Home Assistant and was not placed in this video. The spoken narration contains no "
+        "sensor names or values; your personal details appear only on the private visual cards. "
+        "Keep the comparison gentle, repeatable, and useful, and seek qualified help if a reading "
+        "genuinely concerns you."
+    )
+
+    def count(key: str) -> int:
+        value = summary.get(key, 0)
+        return value if isinstance(value, int) else 0
+
+    discovered = count("discovered_sensor_count")
+    usable = count("usable_sensor_count")
+    historical = count("history_sensor_count")
+
+    def heading(item: dict[str, object]) -> str:
+        return str(item.get("label", "Personal sensor"))[:80]
+
+    def body(item: dict[str, object]) -> str:
+        current = str(item.get("current", "available"))
+        detail = str(item.get("detail", "current reading"))
+        return f"Now {current}. {detail.capitalize()}."[:240]
+
+    cards = highlights[:4]
+    scenes = [
+        Scene(
+            start_seconds=0,
+            duration_seconds=10,
+            scene_type="title",
+            heading=f"Your {period_word.title()} Sensor Story",
+            body=(
+                f"Read {discovered} Home Assistant sensors; {usable} have usable current states "
+                f"and {historical} have {period_word} history."
+            ),
+            visual=Visual(kind="gradient", data_reference="personal-counts"),
+        )
+    ]
+    for index, item in enumerate(cards, start=1):
+        scenes.append(
+            Scene(
+                start_seconds=index * 10,
+                duration_seconds=10,
+                scene_type="metric",
+                heading=heading(item),
+                body=body(item),
+                visual=Visual(kind="chart", data_reference=f"personal-highlight-{index}"),
+            )
+        )
+    while len(scenes) < 5:
+        scenes.append(
+            Scene(
+                start_seconds=len(scenes) * 10,
+                duration_seconds=10,
+                scene_type="reflection",
+                heading="More of Your Sensors",
+                body=f"All {discovered} discovered sensors were considered locally for this story.",
+                visual=Visual(kind="icon_grid", data_reference="personal-coverage"),
+            )
+        )
+    extra = highlights[4:5]
+    closing_body = (
+        f"Also highlighted: {heading(extra[0])} is now {extra[0].get('current', 'available')}."
+        if extra
+        else f"All {discovered} discovered sensors were considered; the strongest signals are above."
+    )
+    scenes.append(
+        Scene(
+            start_seconds=50,
+            duration_seconds=10,
+            scene_type="closing",
+            heading="Personal, Local, and Current",
+            body=closing_body[:240],
+            visual=Visual(kind="gradient", data_reference="privacy-boundary"),
+        )
+    )
+    preview = "; ".join(
+        f"{heading(item)} {item.get('current', 'available')}" for item in highlights[:3]
+    )
+    categories = list(dict.fromkeys(str(item.get("device_class", "sensor")) for item in highlights))
+    return Storyboard(
+        title=f"Your {period_word.title()} Sensor Story",
+        period_type=period,
+        summary=(
+            f"Personalized locally from {discovered} Home Assistant sensors. Highlights: {preview}"
+        )[:400],
+        narration=narration,
+        scenes=scenes,
+        safety_notes=["Descriptive only", "Not medical advice", "Personal values stay visual"],
+        data_categories_used=categories[:20],
+    )
+
+
 def generate_storyboard(
     period: PeriodType, summary: dict[str, object], config: GenerationConfig
 ) -> ModelResult:
     if config.provider == "offline":
-        return ModelResult(offline_storyboard(period), "offline-template", 0, 0, 0.0)
+        return ModelResult(personalized_storyboard(period, summary), "offline-personal", 0, 0, 0.0)
     if config.provider != "openai":
         raise ValueError("generation.provider must be offline or openai")
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         if config.offline_fallback:
             return ModelResult(
-                offline_storyboard(period),
-                "offline-template",
+                personalized_storyboard(period, summary),
+                "offline-personal",
                 0,
                 0,
                 0.0,
@@ -133,7 +244,8 @@ def generate_storyboard(
     client = OpenAI(api_key=api_key)
     last_error = ""
     reserved_cost = 0.0
-    user_content = f"Period: {period.value}. Aggregate-only summary: {summary}"
+    safe_summary = external_disclosure_summary(summary)
+    user_content = f"Period: {period.value}. Count-only summary: {safe_summary}"
     # One token per character plus system overhead is deliberately pessimistic.
     bounded_input_tokens = len(user_content) + 300
     for model in dict.fromkeys(candidates):
@@ -178,8 +290,8 @@ def generate_storyboard(
                 continue
     if config.offline_fallback:
         return ModelResult(
-            offline_storyboard(period),
-            "offline-template",
+            personalized_storyboard(period, summary),
+            "offline-personal",
             0,
             0,
             0.0,

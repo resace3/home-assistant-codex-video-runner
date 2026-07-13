@@ -16,21 +16,28 @@ from .config import DataConfig, GenerationConfig, RenderConfig, Settings, TTSCon
 from .storage import atomic_json, rebuild_indexes, render_lock
 
 TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+PERSONALIZATION_VERSION = 1
 
 
 class SchedulerOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    run_demo_on_start: bool = True
+    run_demo_on_start: bool = False
+    generate_personal_on_start: bool = True
     allow_external_tts: bool = False
     daily_time: str = "06:15"
     weekly_day: int = Field(default=6, ge=0, le=6)
     weekly_time: str = "06:30"
-    entity_allowlist: list[str] = Field(default_factory=list, max_length=20)
+    auto_discover_sensors: bool = True
+    include_binary_sensors: bool = True
+    entity_allowlist: list[str] = Field(default_factory=list, max_length=2_000)
+    max_discovered_entities: int = Field(default=2_000, ge=1, le=5_000)
     history_hours_daily: int = Field(default=24, ge=1, le=168)
     history_days_weekly: int = Field(default=7, ge=1, le=31)
+    history_batch_size: int = Field(default=20, ge=1, le=100)
     max_observations_per_entity: int = Field(default=512, ge=8, le=2048)
-    max_response_bytes: int = Field(default=2_000_000, ge=64_000, le=10_000_000)
+    max_response_bytes: int = Field(default=10_000_000, ge=64_000, le=20_000_000)
+    max_highlights: int = Field(default=5, ge=3, le=5)
     render_width: int = Field(default=720, ge=240, le=1080)
     render_height: int = Field(default=1280, ge=426, le=1920)
     render_fps: int = Field(default=24, ge=12, le=30)
@@ -72,11 +79,16 @@ def prepare_addon(
     options = SchedulerOptions.model_validate(payload)
     settings = Settings(
         data=DataConfig(
+            auto_discover_sensors=options.auto_discover_sensors,
+            include_binary_sensors=options.include_binary_sensors,
             entity_allowlist=options.entity_allowlist,
+            max_discovered_entities=options.max_discovered_entities,
             history_hours_daily=options.history_hours_daily,
             history_days_weekly=options.history_days_weekly,
+            history_batch_size=options.history_batch_size,
             max_observations_per_entity=options.max_observations_per_entity,
             max_response_bytes=options.max_response_bytes,
+            max_highlights=options.max_highlights,
         ),
         generation=GenerationConfig(provider="offline"),
         tts=TTSConfig(allow_external_egress=options.allow_external_tts),
@@ -94,6 +106,7 @@ def prepare_addon(
     config_path.chmod(0o600)
     schedule_payload = {
         "run_demo_on_start": options.run_demo_on_start,
+        "generate_personal_on_start": options.generate_personal_on_start,
         "daily_time": options.daily_time,
         "weekly_day": options.weekly_day,
         "weekly_time": options.weekly_time,
@@ -138,6 +151,30 @@ def _catalog_has_both(video_root: Path) -> bool:
     }
 
 
+def _run_startup_generation(
+    settings: Settings, schedule: dict[str, object], config_path: Path
+) -> None:
+    marker_path = settings.private_data_directory / "personalization-version.json"
+    marker_version = 0
+    if marker_path.is_file():
+        try:
+            marker_payload = json.loads(marker_path.read_text(encoding="utf-8"))
+            marker_version = int(marker_payload.get("version", 0))
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError, OSError):
+            marker_version = 0
+    if bool(schedule.get("generate_personal_on_start", True)) and (
+        marker_version < PERSONALIZATION_VERSION
+    ):
+        _run_child(config_path, "generate", "--period", "daily")
+        _run_child(config_path, "generate", "--period", "weekly")
+        atomic_json(marker_path, {"version": PERSONALIZATION_VERSION})
+        marker_path.chmod(0o600)
+    elif bool(schedule.get("run_demo_on_start", False)) and not _catalog_has_both(
+        settings.video_directory
+    ):
+        _run_child(config_path, "generate-demo")
+
+
 def run_scheduler(config_path: Path, schedule_path: Path, *, poll_seconds: int = 15) -> None:
     settings = Settings.model_validate(yaml.safe_load(config_path.read_text(encoding="utf-8")))
     schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
@@ -150,8 +187,7 @@ def run_scheduler(config_path: Path, schedule_path: Path, *, poll_seconds: int =
             state = {}
     with render_lock(settings.video_directory):
         rebuild_indexes(settings.video_directory)
-    if bool(schedule["run_demo_on_start"]) and not _catalog_has_both(settings.video_directory):
-        _run_child(config_path, "generate-demo")
+    _run_startup_generation(settings, schedule, config_path)
     while True:
         now = datetime.now().astimezone()
         daily_due, daily_key = should_run(now, str(schedule["daily_time"]), state.get("daily", ""))

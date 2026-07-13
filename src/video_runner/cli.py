@@ -10,9 +10,9 @@ import typer
 
 from .config import Settings, load_settings
 from .home_assistant import HomeAssistantClient
+from .personalization import build_personal_summary, external_disclosure_summary
 from .schemas import PeriodType, PrivateAudit
 from .security import (
-    aggregate_history,
     configure_logging,
     scrub_supervisor_environment,
     validate_runtime_roots,
@@ -39,22 +39,55 @@ def _settings(config: Path | None) -> Settings:
 
 def _collect(settings: Settings, period: PeriodType, synthetic: bool) -> dict[str, object]:
     if synthetic:
-        return aggregate_history(
-            {
-                "synthetic.one": [7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.8, 7.9],
-                "synthetic.two": [39, 40, 40, 41, 42, 43, 43, 44],
-            }
+        from .home_assistant import SensorSnapshot
+
+        snapshots = {
+            "sensor.synthetic_steps": SensorSnapshot(
+                "sensor.synthetic_steps", "Synthetic Steps", "7.9", "k", "distance"
+            ),
+            "sensor.synthetic_temperature": SensorSnapshot(
+                "sensor.synthetic_temperature",
+                "Synthetic Temperature",
+                "44",
+                "°F",
+                "temperature",
+            ),
+        }
+        histories: dict[str, list[object]] = {
+            "sensor.synthetic_steps": [7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.8, 7.9],
+            "sensor.synthetic_temperature": [39, 40, 40, 41, 42, 43, 43, 44],
+        }
+        return build_personal_summary(
+            snapshots,
+            histories,
+            period=period.value,
+            max_highlights=settings.data.max_highlights,
         )
     with HomeAssistantClient() as client:
+        explicit_ids = (
+            None if settings.data.auto_discover_sensors else settings.data.entity_allowlist
+        )
+        snapshots = client.fetch_sensor_snapshots(
+            explicit_ids,
+            include_binary_sensors=settings.data.include_binary_sensors,
+            max_entities=settings.data.max_discovered_entities,
+            max_response_bytes=settings.data.max_response_bytes,
+        )
         histories = client.fetch_allowlisted_history(
-            settings.data.entity_allowlist,
+            snapshots,
             period=period.value,
             daily_hours=settings.data.history_hours_daily,
             weekly_days=settings.data.history_days_weekly,
             max_observations_per_entity=settings.data.max_observations_per_entity,
             max_response_bytes=settings.data.max_response_bytes,
+            batch_size=settings.data.history_batch_size,
         )
-    return aggregate_history(histories)
+    return build_personal_summary(
+        snapshots,
+        histories,
+        period=period.value,
+        max_highlights=settings.data.max_highlights,
+    )
 
 
 @app.command()
@@ -122,7 +155,9 @@ def preview_data(
     else:
         minimized = _collect(settings, period, False)
     typer.echo(
-        json.dumps({"period": period.value, "external_disclosure_preview": minimized}, indent=2)
+        json.dumps(
+            {"external_disclosure_preview": external_disclosure_summary(minimized)}, indent=2
+        )
     )
 
 
@@ -231,7 +266,8 @@ def prepare_addon_command(
         json.dumps(
             {
                 "prepared": True,
-                "allowlisted_entities": len(prepared.entity_allowlist),
+                "automatic_sensor_discovery": prepared.auto_discover_sensors,
+                "configured_entities": len(prepared.entity_allowlist),
                 "external_tts_enabled": prepared.allow_external_tts,
             }
         )
