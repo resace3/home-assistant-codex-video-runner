@@ -1,6 +1,9 @@
 # Home Assistant Codex Video Runner
 
-A privacy-first, deterministic MoviePy pipeline for one-minute daily and weekly Home Assistant reflections. The public repository contains only generic code and synthetic fixtures. Users explicitly choose every Home Assistant entity included.
+A privacy-first, deterministic MoviePy pipeline for one-minute daily and weekly
+Home Assistant reflections. The public repository contains only generic code
+and synthetic fixtures. The supervised app can automatically read every sensor
+and binary-sensor entity, then create local visual cards from real values.
 
 > This is not a medical device. Generated observations are descriptive, not medical advice. Review the privacy and cost implications before enabling any external provider.
 
@@ -8,7 +11,7 @@ A privacy-first, deterministic MoviePy pipeline for one-minute daily and weekly 
 
 ```mermaid
 flowchart LR
-  A[Allowlisted HA entities] -->|SUPERVISOR_TOKEN stays here| B[Local collector]
+  A[Automatically discovered HA sensors] -->|SUPERVISOR_TOKEN stays here| B[Local collector]
   B --> C[Aggregate-only disclosure DTO]
   C --> D{Offline or external storyboard}
   D --> E[Strict Pydantic validation]
@@ -26,9 +29,16 @@ The browser-safe manifest contains titles, dates, filenames, duration, and a sho
 
 Add this repository to Home Assistant's app store, install **Personal Video Runner**, review its options, and explicitly enable `allow_external_tts` before starting it. The headless app owns Python, MoviePy, FFmpeg, FFprobe, Libby TTS, and its scheduler; it does not depend on a shell app or a host package install.
 
-On the first successful start, `run_demo_on_start` publishes one daily and one weekly synthetic video. Recurring jobs run inside the supervised app and survive restarts. Keep Advanced SSH protected and running if you use it for unrelated work: this project never stops, restarts, uninstalls, or weakens it.
+On the first 0.3 start, `generate_personal_on_start` publishes one real daily
+and one real weekly video from the instance's sensors. Recurring jobs run inside
+the supervised app and survive restarts. Keep Advanced SSH protected and
+running if you use it for unrelated work: this project never stops, restarts,
+uninstalls, or weakens it.
 
-A real scheduled run receives `SUPERVISOR_TOKEN` from Supervisor at runtime. Never paste that token into configuration.
+A real scheduled run receives `SUPERVISOR_TOKEN` from Supervisor at runtime.
+The runner uses it with `http://supervisor/core/api/states` and the history API,
+then scrubs it before storyboard, TTS, or rendering work. Never paste that token
+into configuration.
 
 ## Commands
 
@@ -88,7 +98,13 @@ Installation creates an empty valid `indexes/all.json`; seeing zero videos after
 
 Copy `config.example.yaml` to private `/data`; it is ignored by Git. Real entity IDs, values, provider keys, generated videos, narration, screenshots, Nabu Casa URLs, tokens, cookies, and logs must never enter this public repository.
 
-The collector accepts at most 20 allowlisted sensor-like entities and fetches them one at a time with response-size and observation caps. External disclosure uses anonymous categorical trend, variability, and count bands only after at least eight observations. Exact values, extrema, entity identifiers, free text, raw history, coordinates, attributes, database exports, and exact timestamps are not sent externally.
+Automatic mode reads all `sensor.*` and `binary_sensor.*` states up to the
+configured fail-closed safety cap, then requests period history in bounded
+batches with response-size and observation limits. Every usable entity is
+considered locally; at most five high-signal readings are placed on the visual
+cards. External model disclosure is count-only. Libby receives generic
+narration without sensor names, values, entity identifiers, attributes, raw
+history, coordinates, or timestamps.
 
 ## Container and scheduler
 

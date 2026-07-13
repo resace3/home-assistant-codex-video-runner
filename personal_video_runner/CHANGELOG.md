@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Automatically discover all sensor and binary-sensor entities.
+- Generate personal daily and weekly visual stories from real local readings.
+- Keep Supervisor credentials and personal readings out of external narration.
+
 ## 0.2.2
 
 - Keep MoviePy's temporary audio mux file in the writable private render

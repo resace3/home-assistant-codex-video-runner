@@ -1,14 +1,16 @@
 video_directory: /share/personal_video_studio
 private_data_directory: /data/personal_video_studio
 data:
-  entity_allowlist:
-    - sensor.example_sleep_duration
-    - sensor.example_steps
-    - sensor.example_resting_heart_rate
+  auto_discover_sensors: true
+  include_binary_sensors: true
+  entity_allowlist: []
+  max_discovered_entities: 2000
   history_hours_daily: 24
   history_days_weekly: 7
+  history_batch_size: 20
   max_observations_per_entity: 512
-  max_response_bytes: 2000000
+  max_response_bytes: 10000000
+  max_highlights: 5
   include_raw_values_in_external_requests: false
   anonymize_entity_names: true
 generation:
