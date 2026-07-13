@@ -16,7 +16,7 @@ from .config import DataConfig, GenerationConfig, RenderConfig, Settings, TTSCon
 from .storage import atomic_json, rebuild_indexes, render_lock
 
 TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-PERSONALIZATION_VERSION = 1
+PERSONALIZATION_VERSION = 2
 
 
 class SchedulerOptions(BaseModel):

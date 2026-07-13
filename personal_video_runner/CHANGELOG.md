@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Keep personal-story Libby narration within the natural one-minute media gate.
+
 ## 0.3.0
 
 - Automatically discover all sensor and binary-sensor entities.

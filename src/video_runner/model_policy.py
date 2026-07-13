@@ -122,18 +122,17 @@ def personalized_storyboard(period: PeriodType, summary: dict[str, object]) -> S
         return offline_storyboard(period)
     period_word = "daily" if period == PeriodType.DAILY else "weekly"
     narration = (
-        f"Welcome to your {period_word} Home Assistant reflection. The cards on screen were built "
-        "locally from your own current sensor states and the readings recorded during this period. "
-        "Start with the first highlighted signal, then compare its current value with its recent "
-        "direction. Move through the next cards slowly, noticing what changed, what stayed steady, "
-        "and which readings may reflect ordinary routines in your home. A shift is context, not a "
-        "diagnosis, and a single value rarely tells the whole story. Use these observations to "
-        "choose one small, practical next step, such as checking a device, adjusting a routine, or "
-        "simply watching the pattern for another period. Your Supervisor credential was used only "
-        "inside Home Assistant and was not placed in this video. The spoken narration contains no "
-        "sensor names or values; your personal details appear only on the private visual cards. "
-        "Keep the comparison gentle, repeatable, and useful, and seek qualified help if a reading "
-        "genuinely concerns you."
+        f"Welcome to your {period_word} Home Assistant reflection; the cards on screen were built "
+        "locally from your sensor states and readings during this period; start with the "
+        "highlighted signal, then compare its value with its direction; move through the cards, "
+        "noticing what changed, what stayed steady, and which readings may reflect routines; a "
+        "shift is context, not a diagnosis, and one value rarely tells the whole story; use these "
+        "observations to choose a next step, such as checking a device, adjusting a routine, or "
+        "watching the pattern for the next period; your Supervisor credential was used only inside "
+        "Home Assistant and was not placed in this video; the spoken narration contains no sensor "
+        "names or values, while details appear only on the visual cards; keep the comparison "
+        "gentle, repeatable, and useful, and seek qualified help if a reading concerns you; return "
+        "next period to compare the same signals and see what changed."
     )
 
     def count(key: str) -> int:

@@ -1,5 +1,5 @@
 name: Personal Video Runner
-version: "0.3.0"
+version: "0.3.1"
 slug: personal_video_runner
 description: Privacy-first daily and weekly video generator for Personal Video Studio
 url: https://github.com/resace3/home-assistant-codex-video-runner
